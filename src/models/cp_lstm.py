@@ -3,8 +3,7 @@ import torch
 import torch.nn as nn
 
 
-# Taken from: https://towardsdatascience.com/building-a-lstm-by-hand-on-pytorch-59c02a4ec091
-class CustomLSTM(nn.Module):
+class CPLSTM(nn.Module):
     """CP-Factorized LSTM.
 
     Args:
@@ -16,6 +15,7 @@ class CustomLSTM(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.rank = rank
 
         # cp factors
         self.a = nn.Parameter(torch.Tensor(hidden_size, rank * 4))
@@ -39,12 +39,19 @@ class CustomLSTM(nn.Module):
         else:
             h_t, c_t = init_states
 
-        hs = self.hidden_size
         for t in range(sequence_length):
             x_t = x[:, t, :]
 
-            # batch the computations into a single matrix multiplication
-            gates = torch.multiply(h_t @ self.a, x_t @ self.b)
+            # CP contraction
+            gates = torch.multiply(h_t @ self.a, x_t @ self.b)  # [nxd][dx4r]
+            gates = torch.matmul(
+                # [n,4r] => [n,4,1,r]
+                gates.reshape(batch_size, 4, 1, self.rank),
+
+                # [4r,d] => [1,4,r,d]
+                self.ct.reshape(1, 4, self.rank, self.hidden_size)
+            ).squeeze()  # final dimension [n,4,d]
+
             funcs = [torch.sigmoid, torch.sigmoid, torch.tanh, torch.sigmoid]
             f_t, i_t, g_t, o_t = [funcs[k](gates[:, k, :]) for k in range(4)]
 
@@ -57,3 +64,16 @@ class CustomLSTM(nn.Module):
         # reshape from shape (sequence, batch, feature) to (batch, sequence, feature)
         hidden_seq = hidden_seq.transpose(0, 1).contiguous()
         return hidden_seq, (h_t, c_t)
+
+
+if __name__ == '__main__':
+
+    input_size, hidden_size, cp_rank = 128, 128, 32
+    cplstm = CPLSTM(input_size, hidden_size, cp_rank)
+
+    batch_size, sequence_length = 32, 32
+    x = torch.randn(batch_size, sequence_length, input_size)
+    out = cplstm(x)
+
+    # output
+    # out[0].shape: torch.Size([32, 32, 128])

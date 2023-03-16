@@ -4,7 +4,7 @@ import torch.nn as nn
 
 
 # Taken from: https://towardsdatascience.com/building-a-lstm-by-hand-on-pytorch-59c02a4ec091
-class CustomLSTM(nn.Module):
+class LSTM(nn.Module):
     def __init__(self, input_sz, hidden_sz):
         super().__init__()
         self.input_sz = input_sz
