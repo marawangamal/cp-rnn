@@ -5,7 +5,7 @@ import torch.nn as nn
 
 # Taken from: https://towardsdatascience.com/building-a-lstm-by-hand-on-pytorch-59c02a4ec091
 class LSTM(nn.Module):
-    def __init__(self, input_sz, hidden_sz, vocab_size, embedding = None):
+    def __init__(self, input_sz, hidden_sz, vocab_size, embedding=None):
         super().__init__()
 
         # Embedding

@@ -1,21 +1,26 @@
+from collections.abc import Iterable
 import torch
-import string
 
 
 class CharacterTokenizer:
-    def __init__(self, additional_chars: str = ""):
+    def __init__(self, tokens: Iterable[str] = None):
+        """
 
-        self.additional_chars = additional_chars
-        # chars = string.ascii_letters + " .,;'-!.?<>&" + string.digits + additional_chars
-        chars = string.printable
-
+        Args:
+            tokens: (iterable) previously extracted tokens
+        """
         # Character to index and index to character maps
-        self.char_to_ix_dct = {ch: i for i, ch in enumerate(chars)}
-        self.ix_to_char_dct = {i: ch for i, ch in enumerate(chars)}
+        self._tokens = list(tokens) if not isinstance(tokens, list) else tokens
+        self.char_to_ix_dct = {ch: i for i, ch in enumerate(tokens)}
+        self.ix_to_char_dct = {i: ch for i, ch in enumerate(tokens)}
 
     @property
     def vocab_size(self):
         return len(self.char_to_ix_dct)
+
+    @property
+    def tokens(self):
+        return self._tokens
 
     def char_to_ix(self, char: str = None):
         return self.char_to_ix_dct[char]

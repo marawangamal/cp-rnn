@@ -11,23 +11,23 @@ class CPLSTM(nn.Module):
         hidden_size: Dimension of hidden features.
         rank: Rank of cp factorization
     """
-    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, rank: int, embedding: nn.Embedding = None):
+    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, rank: int = 8,
+                 embedding: nn.Embedding = None, decoder: nn.Module = None):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.vocab_size = vocab_size
         self.rank = rank
 
-        # Embedding
-        if embedding is None:
-            self.embedding = nn.Embedding(vocab_size, input_size)
-        else:
-            self.embedding = embedding
+        # Define embedding and decoder layers
+        self.embedding = nn.Embedding(self.vocab_size, self.input_size) if embedding is None else embedding
+        self.decoder = nn.Linear(self.hidden_size, self.vocab_size) if decoder is None else decoder
 
-        # CP factors
-        self.a = nn.Parameter(torch.Tensor(hidden_size, rank * 4))
-        self.b = nn.Parameter(torch.Tensor(input_size, rank * 4))
-        self.ct = nn.Parameter(torch.Tensor(rank * 4, hidden_size))
-        self.bias = nn.Parameter(torch.Tensor(hidden_size * 4))
+        # Encoder using CP factors
+        self.a = nn.Parameter(torch.Tensor(self.hidden_size, self.rank * 4))
+        self.b = nn.Parameter(torch.Tensor(self.input_size, self.rank * 4))
+        self.ct = nn.Parameter(torch.Tensor(self.rank * 4, self.hidden_size))
+        self.bias = nn.Parameter(torch.Tensor(self.hidden_size * 4))
         self.init_weights()
 
     def init_weights(self):
@@ -38,7 +38,7 @@ class CPLSTM(nn.Module):
     def forward(self, inp, init_states=None):
         """Assumes `inp` is of shape (batch, sequence) and contains word indices"""
 
-        x = self.embedding(inp).view(1, 1, -1)  # [batch, sequence, input_size]
+        x = self.embedding(inp)  # [batch, sequence, input_size]
         batch_size, sequence_length, _ = x.size()
         hidden_seq = []
 
@@ -71,8 +71,9 @@ class CPLSTM(nn.Module):
         hidden_seq = torch.cat(hidden_seq, dim=0)
 
         # reshape from shape (sequence, batch, feature) to (batch, sequence, feature)
-        hidden_seq = hidden_seq.transpose(0, 1).contiguous()
-        return hidden_seq, (h_t, c_t)
+        output = self.decoder(hidden_seq.transpose(0, 1).contiguous())  # Don't really need this line
+
+        return output, (c_t, h_t)
 
 
 if __name__ == '__main__':

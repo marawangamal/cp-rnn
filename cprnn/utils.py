@@ -8,4 +8,5 @@ def save_object(obj, filename):
 
 def load_object(filename):
     with open(filename, 'rb') as inp_file:  # Overwrites any existing file.
-        pickle.load(inp_file)
+        out = pickle.load(inp_file)
+    return out
