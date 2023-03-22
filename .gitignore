@@ -1,0 +1,7 @@
+.DS_Store
+*.pkl
+*.txt
+*.jpg
+*.png
+*.json
+*.idea
