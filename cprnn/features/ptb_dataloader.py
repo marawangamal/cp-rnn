@@ -23,7 +23,7 @@ class PTBDataloader:
         return self
 
     def __next__(self):
-        if self.n <= self.num_batches:
+        if self.n < self.num_batches:
             source = self.dataset_ids[self.n: self.n + self.seq_len]  # [L, BS]
             target = self.dataset_ids[self.n + 1: self.n + 1 + self.seq_len]  # [L, BS]
             self.n += self.seq_len + 1

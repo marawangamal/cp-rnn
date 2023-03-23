@@ -10,3 +10,7 @@ def load_object(filename):
     with open(filename, 'rb') as inp_file:  # Overwrites any existing file.
         out = pickle.load(inp_file)
     return out
+
+
+def saveckpt(model):
+    pass

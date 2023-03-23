@@ -36,9 +36,9 @@ class CPLSTM(nn.Module):
             weight.data.uniform_(-stdv, stdv)
 
     def forward(self, inp, init_states=None):
-        """Assumes `inp` is of shape (batch, sequence) and contains word indices"""
+        """Assumes `inp` is of shape (seq, bsz) and contains word indices, out is of shape (seq, bsz, d_vocab)"""
 
-        x = self.embedding(inp)  # [batch, sequence, input_size]
+        x = self.embedding(inp)  # [sequence, batch, input_size]
         batch_size, sequence_length, _ = x.size()
         hidden_seq = []
 
@@ -49,7 +49,7 @@ class CPLSTM(nn.Module):
             h_t, c_t = init_states
 
         for t in range(sequence_length):
-            x_t = x[:, t, :]
+            x_t = x[t, :, :]
 
             # CP contraction
             gates = torch.multiply(h_t @ self.a, x_t @ self.b)  # [nxd][dx4r]
@@ -71,8 +71,9 @@ class CPLSTM(nn.Module):
         hidden_seq = torch.cat(hidden_seq, dim=0)
 
         # reshape from shape (sequence, batch, feature) to (batch, sequence, feature)
-        output = self.decoder(hidden_seq.transpose(0, 1).contiguous())  # Don't really need this line
+        # output = self.decoder(hidden_seq.transpose(0, 1).contiguous())  # Don't really ne ed this line
 
+        output = self.decoder(hidden_seq.contiguous())
         return output, (c_t, h_t)
 
 

@@ -6,10 +6,11 @@ import argparse as argparse
 import torch
 import torch.nn as nn
 
-from cprnn.utils import load_object
+from cprnn.utils import load_object, saveckpt
 from cprnn.models import LSTM, CPLSTM
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
+
 
 _output_paths = {
     "data": "data/processed/ptb/"
@@ -49,8 +50,7 @@ def main(args):
 
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or val_loss < best_val_loss:
-            with open(args.save, 'wb') as f:
-                torch.save(model, f)
+            saveckpt(model)
             best_val_loss = val_loss
         else:
             # Anneal the learning rate if no improvement has been seen in the validation dataset.
@@ -58,6 +58,12 @@ def main(args):
                 args.lr /= 4.0
                 for group in optimizer.param_groups:
                     group['lr'] = args.lr
+
+        # Qualitative prediction
+        sentences_output, sentences_target = evaluate_qualitative(model, valid_dataloader, tokenizer)
+        print("\nQualitative:\n============\nTarget:\n{}\nPrediction:\n{}\n".format(
+            "".join(sentences_target[:, 0]), "".join(sentences_output[:, 0])
+        ))
 
 
 def evaluate(model, eval_dataloader, criterion):
@@ -67,10 +73,21 @@ def evaluate(model, eval_dataloader, criterion):
         for i_batch, (source, target) in enumerate(eval_dataloader):
             output, _ = model(source)
             batch_size, seq_len, output_size = output.shape
-            loss = criterion(output.view(batch_size * seq_len, -1), target.view(batch_size * seq_len))
+            loss = criterion(output.view(seq_len * batch_size, -1), target.view(batch_size * seq_len))
             total_loss += loss.data
 
-    return total_loss/len(eval_dataloader)
+    return total_loss/(len(eval_dataloader) * eval_dataloader.batch_size)
+
+
+def evaluate_qualitative(model, eval_dataloader, tokenizer: CharacterTokenizer):
+    with torch.no_grad():
+        model.eval()
+        source, target = next(iter(eval_dataloader))
+        output, _ = model(source)  # [seq, bsz, d_vocab]
+        output = torch.argmax(torch.softmax(output, dim=-1), dim=-1)
+        sentences_output = tokenizer.ix_to_char(output.cpu().detach().numpy())
+        sentences_target = tokenizer.ix_to_char(target.cpu().detach().numpy())
+    return sentences_output, sentences_target
 
 
 def train(model, train_dataloader, optimizer, criterion, i_epoch, interval, grad_clip):
@@ -79,10 +96,11 @@ def train(model, train_dataloader, optimizer, criterion, i_epoch, interval, grad
     iteration = 0
     total_loss = 0
     start_time = time.time()
-    for i_batch, (source, target) in enumerate(train_dataloader):
+    for i_batch, (source, target) in enumerate(train_dataloader):  # [L, BS]
         output, _ = model(source)
         batch_size, seq_len, output_size = output.shape
-        loss = criterion(output.view(batch_size * seq_len, -1), target.view(batch_size * seq_len))
+
+        loss = criterion(output.view(batch_size * seq_len, -1), target.view(seq_len * batch_size))
         optimizer.zero_grad()
         loss.backward()
 
@@ -104,6 +122,7 @@ def train(model, train_dataloader, optimizer, criterion, i_epoch, interval, grad
                                                         math.exp(cur_loss)))
             total_loss = 0
             start_time = time.time()
+
 
 
 if __name__ == '__main__':

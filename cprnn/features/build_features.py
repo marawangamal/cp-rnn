@@ -28,7 +28,7 @@ def ptb_get_indices(dataset: torch.utils.data.Dataset):
     idx = 0
     for line in dataset:
         for char in line:
-            dataset_ids[idx] = tokenizer.tokenize(char)
+            dataset_ids[idx] = tokenizer.tokenize(char).item()
             idx += 1
 
     return dataset_ids, tokenizer
