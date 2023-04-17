@@ -124,7 +124,6 @@ def train(model, train_dataloader, optimizer, criterion, i_epoch, interval, grad
             start_time = time.time()
 
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch PennTreeBank RNN/LSTM Language Model')
     parser.add_argument('--epochs', type=int, default=30)

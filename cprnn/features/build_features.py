@@ -35,6 +35,7 @@ def ptb_get_indices(dataset: torch.utils.data.Dataset):
 
 
 def ptb_make_dataset(**kwargs):
+    """Merge whole dataset/corpus into single integer vector and save its tokenizer"""
     logger.info("Processing Penn Treebank dataset...")
     for split in ['train']:
         dataset = torchtext.datasets.PennTreebank(root=osp.join(data_path['raw'], 'ptb', split), split=split)
@@ -48,8 +49,39 @@ def ptb_make_dataset(**kwargs):
     logging.info("Done. Files saved to {}".format(osp.join(data_path['processed'], 'ptb', split + '.pth')))
 
 
+def toy_make_dataset(dataset_length=1000, model_name='cprnn', **kwargs):
+    """Creates toy dataset from RNN model."""
+    logger.info("Creating toy dataset...")
+
+    from cprnn.models import LSTM, CPLSTM, CPRNN
+    torch.manual_seed(0)
+
+    models = {"cprnn": CPRNN, "cplstm": CPLSTM, "lstm": LSTM}
+
+    batch_size, sequence_length = 1, 1  # can't change these
+
+    input_size, hidden_size, vocab_size, rank = 8, 8, 4, 4
+    model = models[model_name.lower()](input_size=input_size, hidden_size=hidden_size, vocab_size=vocab_size, rank=rank)
+    model.eval()
+
+    for split in ['train']:
+        init_id = torch.randint(0, vocab_size, (sequence_length, batch_size))
+        dataset_ids = list([init_id.item()])
+
+        for _ in range(dataset_length):
+            output_id, _ = model(init_id)  # [S, B, D_i]
+            dataset_ids.append(output_id)
+
+        if not osp.exists(osp.join(data_path['processed'], 'toy-rnn')):
+            os.makedirs(osp.join(data_path['processed'], 'toy-rnn'))
+        torch.save(dataset_ids, osp.join(data_path['processed'], 'toy-rnn', split + '.pth'))
+
+    logging.info("Done. Files saved to {}".format(osp.join(data_path['processed'], 'toy-rnn', split + '.pth')))
+
+
 make_dataset_functions = {
-    'ptb': ptb_make_dataset
+    'ptb': ptb_make_dataset,
+    'toy': toy_make_dataset
 }
 
 if __name__ == '__main__':

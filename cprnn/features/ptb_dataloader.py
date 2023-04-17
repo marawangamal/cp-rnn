@@ -3,8 +3,8 @@ import torch
 
 class PTBDataloader:
     def __init__(self, dataset_path: str, batch_size: int = 32, seq_len: int = 32):
-        # Since dataset is small, we will combine it all in a single vector
-        self.dataset_ids = torch.load(dataset_path)
+        # Since dataset is small, we load it all into a single vector
+        self.dataset_ids = torch.load(dataset_path)  # entire dataset
         self.batch_size = batch_size
         self.seq_len = seq_len
         self.num_batches = self.dataset_ids.size(0) // self.batch_size
