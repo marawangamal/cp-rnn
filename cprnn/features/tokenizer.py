@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from typing import Union
 import numpy as np
 
@@ -9,7 +8,7 @@ class CharacterTokenizer:
     Args:
         tokens: (iterable) previously extracted tokens (i.e. list of characters or words)
     """
-    def __init__(self, tokens: Iterable[str] = None):
+    def __init__(self, tokens: Union[list, tuple] = None):
 
         # Character to index and index to character maps
         self._tokens = list(tokens) if not isinstance(tokens, list) else tokens

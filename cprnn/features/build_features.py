@@ -14,9 +14,10 @@ from cprnn.utils import save_object
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) # This is your Project Root
 data_path = {
-    "raw": osp.join(sys.path[1], "data", "raw"),
-    "processed": osp.join(sys.path[1], "data", "processed"),
+    "raw": osp.join(osp.split(osp.split(ROOT_DIR)[0])[0], "data", "raw"),
+    "processed": osp.join(osp.split(osp.split(ROOT_DIR)[0])[0], "data", "processed")
 }
 
 
