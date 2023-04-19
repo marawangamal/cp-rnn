@@ -12,5 +12,22 @@ def load_object(filename):
     return out
 
 
-def saveckpt(model):
+def saveckpt(model, epoch, optimizer):
     pass
+
+
+class AverageMeter:
+    def __init__(self):
+        self.sum = 0
+        self.pts = 0
+
+    def add(self, val):
+        self.sum += val
+        self.pts += 1
+
+    @property
+    def value(self):
+        return self.sum / self.pts
+
+
+

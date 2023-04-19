@@ -10,11 +10,12 @@ import torchtext
 
 from cprnn.features.tokenizer import CharacterTokenizer
 from cprnn.utils import save_object
+from cprnn.models import LSTM, CPLSTM, CPRNN
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) # This is your Project Root
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))  # This is your Project Root
 data_path = {
     "raw": osp.join(osp.split(osp.split(ROOT_DIR)[0])[0], "data", "raw"),
     "processed": osp.join(osp.split(osp.split(ROOT_DIR)[0])[0], "data", "processed")
@@ -50,34 +51,42 @@ def ptb_make_dataset(**kwargs):
     logging.info("Done. Files saved to {}".format(osp.join(data_path['processed'], 'ptb', split + '.pth')))
 
 
-def toy_make_dataset(dataset_length=1000, model_name='cprnn', **kwargs):
+def toy_make_dataset(input_size=32, hidden_size=32, vocab_size=16, rank=32, train_length=10, valid_length=10,
+                     test_length=10, model_name='cprnn', **kwargs):
     """Creates toy dataset from RNN model."""
     logger.info("Creating toy dataset...")
 
-    from cprnn.models import LSTM, CPLSTM, CPRNN
-    torch.manual_seed(0)
-
+    # torch.manual_seed(87139)
     models = {"cprnn": CPRNN, "cplstm": CPLSTM, "lstm": LSTM}
 
     batch_size, sequence_length = 1, 1  # can't change these
 
-    input_size, hidden_size, vocab_size, rank = 8, 8, 4, 4
     model = models[model_name.lower()](input_size=input_size, hidden_size=hidden_size, vocab_size=vocab_size, rank=rank)
-    model.eval()
 
-    for split in ['train']:
-        init_id = torch.randint(0, vocab_size, (sequence_length, batch_size))
+    model.eval()
+    tokenizer = CharacterTokenizer(tokens=[s for s in string.printable[:vocab_size]])
+
+    for split, dataset_length in zip(['train', 'valid', 'test'], [train_length, valid_length, test_length]):
+        init_id = torch.randint(1, vocab_size, (sequence_length, batch_size))
         dataset_ids = list([init_id.item()])
 
+        h_t_prev = torch.zeros(batch_size, model.hidden_size).to(init_id.device)
         for _ in range(dataset_length):
-            output_id, _ = model(init_id)  # [S, B, D_i]
-            dataset_ids.append(output_id)
+            output_id, output_conf, h_t = model(init_id, h_t_prev)  # [S, B, D_i]
+            print("diff: {}".format(torch.linalg.norm(h_t_prev - h_t)))
+            dataset_ids.append(output_id.item())
+            init_id, h_t_prev = output_id, h_t
 
-        if not osp.exists(osp.join(data_path['processed'], 'toy-rnn')):
-            os.makedirs(osp.join(data_path['processed'], 'toy-rnn'))
-        torch.save(dataset_ids, osp.join(data_path['processed'], 'toy-rnn', split + '.pth'))
+        generator_name = 'toy-rnn-i{}-h{}-v{}-r{}'.format(input_size, hidden_size, vocab_size, rank)
+        if not osp.exists(osp.join(data_path['processed'], generator_name)):
+            os.makedirs(osp.join(data_path['processed'], generator_name))
 
-    logging.info("Done. Files saved to {}".format(osp.join(data_path['processed'], 'toy-rnn', split + '.pth')))
+        torch.save(torch.tensor(dataset_ids), osp.join(data_path['processed'], generator_name, split + '.pth'))
+        save_object(tokenizer.tokens, osp.join(data_path['processed'], generator_name, 'tokenizer.pkl'))
+
+    logging.info("Done. Files saved to {}. Train/Valid/Test length = {}/{}/{}".format(
+        osp.join(data_path['processed'], 'toy-rnn'), train_length, valid_length, test_length)
+    )
 
 
 make_dataset_functions = {

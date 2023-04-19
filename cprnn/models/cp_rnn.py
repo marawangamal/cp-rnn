@@ -13,7 +13,7 @@ class CPRNN(nn.Module):
         rank: Rank of cp factorization
     """
     def __init__(self, input_size: int, hidden_size: int, vocab_size: int, rank: int = 8,
-                 embedding: nn.Embedding = None, decoder: nn.Module = None):
+                 embedding: nn.Embedding = None, decoder: nn.Module = None, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -25,8 +25,8 @@ class CPRNN(nn.Module):
         self.decoder = nn.Linear(self.hidden_size, self.vocab_size) if decoder is None else decoder
 
         # Encoder using CP factors
-        self.a = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
-        self.b = nn.Parameter(torch.Tensor(self.input_size, self.rank))
+        self.a = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.rank))
+        self.b = nn.Parameter(torch.Tensor(self.input_size + 1, self.rank))
         self.c = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
         self.bias = nn.Parameter(torch.Tensor(self.hidden_size))
         self.init_weights()
@@ -38,7 +38,6 @@ class CPRNN(nn.Module):
 
     def forward(self, inp: torch.LongTensor,
                 init_state: torch.Tensor = None):
-
 
         if len(inp.shape) != 2:
             raise ValueError("Expected input tensor of order 2, but got order {} tensor instead".format(len(inp.shape)))
@@ -56,17 +55,19 @@ class CPRNN(nn.Module):
         for t in range(sequence_length):
             x_t = x[t, :, :]
 
-            a_prime = h_t @ self.a  # [B, D_h][D_h, R] => [B, R]
-            b_prime = x_t @ self.b  # [B, D_i][D_i, R] => [B, R]
-            h_t = torch.tanh(torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c))
-            hidden_seq.append(h_t.unsqueeze(0))
+            a_prime = torch.cat((h_t, torch.ones(batch_size, 1)), dim=1) @ self.a  # [B, D_h][D_h, R] => [B, R]
+            b_prime = torch.cat((x_t, torch.ones(batch_size, 1)), dim=1) @ self.b  # [B, D_i'][D_i', R] => [B, R]
+            h_tnew = torch.sigmoid(torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c))
+            hidden_seq.append(h_tnew.unsqueeze(0))
+            h_t = h_tnew
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
         output = self.decoder(hidden_seq.contiguous())
-        
-        if self.train:
+
+        if self.training:
             return output, h_t
         else:
+
             output_conf = torch.softmax(output, dim=-1)
             output_ids = torch.argmax(output_conf, dim=-1)  # [S, B]
-            return output_ids, output_conf
+            return output_ids, output_conf, h_t
