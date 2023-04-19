@@ -10,15 +10,32 @@ To install requirements:
 pip install -r requirements.txt
 ```
 
-## Training
+## Usage
 
-To train the model(s) in the paper, run this command:
-
-```train
-python train.py -b 256 --lr 1e-4 --epochs 100 
+**Build Data**
+To generate toy datasets:
+```cmd
+python cprnn/features/build_features.py -d toy
 ```
 
-## Evaluation
+To build PTB:
+```cmd
+python cprnn/features/build_features.py -d ptb
+```
+
+**Train**
+
+To train a model on toy datasets:
+```train
+python train.py -d data/processed/toy-rnn-i8-h8-v4-r4  
+```
+
+To train on PTB
+```train
+python train.py -d data/processed/ptb  
+```
+
+**Evaluate**
 
 To evaluate my model on ImageNet, run:
 
