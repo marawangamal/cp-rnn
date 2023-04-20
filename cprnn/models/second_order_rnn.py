@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 
-class CPRNN(nn.Module):
+class SecondOrderRNN(nn.Module):
     """CP-Factorized LSTM. Outputs logits (no softmax)
 
     Args:
@@ -25,9 +25,7 @@ class CPRNN(nn.Module):
         self.decoder = nn.Linear(self.hidden_size, self.vocab_size) if decoder is None else decoder
 
         # Encoder using CP factors
-        self.a = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.rank))
-        self.b = nn.Parameter(torch.Tensor(self.input_size + 1, self.rank))
-        self.c = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
+        self.w = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.input_size + 1, self.hidden_size))
         self.bias = nn.Parameter(torch.Tensor(self.hidden_size))
         self.init_weights()
 
@@ -43,7 +41,7 @@ class CPRNN(nn.Module):
             raise ValueError("Expected input tensor of order 2, but got order {} tensor instead".format(len(inp.shape)))
 
         x = self.embedding(inp)  # [S, B, D_in] (i.e. [sequence, batch, input_size])
-        sequence_length, batch_size, _ = x.size()
+        batch_size, sequence_length, _ = x.size()
         hidden_seq = []
 
         if init_state is None:
@@ -55,9 +53,9 @@ class CPRNN(nn.Module):
         for t in range(sequence_length):
             x_t = x[t, :, :]
 
-            a_prime = torch.cat((h_t, torch.ones(batch_size, 1)), dim=1) @ self.a  # [B, D_h][D_h, R] => [B, R]
-            b_prime = torch.cat((x_t, torch.ones(batch_size, 1)), dim=1) @ self.b  # [B, D_i'][D_i', R] => [B, R]
-            h_tnew = torch.sigmoid(torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c))
+            h_prime = torch.cat((h_t, torch.ones(batch_size, 1)), dim=1)  # [B, D_h][D_h, R] => [B, R]
+            x_prime = torch.cat((x_t, torch.ones(batch_size, 1)), dim=1)   # [B, D_i'][D_i', R] => [B, R]
+            h_tnew = torch.sigmoid(torch.einsum("bi,bj,ijk->bk", h_prime, x_prime, self.w))
             hidden_seq.append(h_tnew.unsqueeze(0))
             h_t = h_tnew
 

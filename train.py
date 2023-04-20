@@ -9,7 +9,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from cprnn.utils import load_object, AverageMeter
-from cprnn.models import LSTM, CPLSTM, CPRNN
+from cprnn.models import LSTM, CPLSTM, CPRNN, SecondOrderRNNKR, LSTMPT
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
 
@@ -26,7 +26,9 @@ _output_paths = {
 _models = {
     "lstm": LSTM,
     "cplstm": CPLSTM,
-    "cprnn": CPRNN
+    "cprnn": CPRNN,
+    "2rnn": SecondOrderRNNKR,
+    "lstmpt": LSTMPT
 }
 
 
@@ -46,7 +48,7 @@ def main(args):
     tokenizer = CharacterTokenizer(tokens=load_object('data/processed/ptb/tokenizer.pkl'))
 
     # Model
-    model = _models[args.m.lower()](input_size, hidden_size, vocab_size=tokenizer.vocab_size)
+    model = _models[args.model.lower()](input_size, hidden_size, vocab_size=tokenizer.vocab_size)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -54,9 +56,13 @@ def main(args):
     if not osp.exists(osp.join(_output_paths['models'], args.dataset)):
         os.makedirs(osp.join(_output_paths['models'], args.dataset))
 
-    filename = "{}_e{}_l{}_b{}_s{}_d{}".format(args.m, args.e, str(args.l).split('.')[-1], args.b, args.s, args.d)
-    output_path = osp.join("runs", args.dataset, filename)
-    writer = SummaryWriter(log_dir=output_path)
+    filename = "{}_e{}_l{}_b{}_s{}.pth".format(args.model, args.epochs, str(args.lr).split('.')[-1],
+                                               args.batch_size, args.seq_len)
+
+    if not osp.exists(osp.join("runs", osp.split(args.dataset)[-1])):
+        os.makedirs(osp.join("runs", osp.split(args.dataset)[-1]))
+    output_path = osp.join("runs", osp.split(args.dataset)[-1], filename)
+    writer = SummaryWriter(log_dir=osp.join("runs", osp.split(args.dataset)[-1]))
 
     # Training
     best_valid_loss = None
@@ -106,7 +112,6 @@ def main(args):
 
 def evaluate(model, eval_dataloader, criterion):
     with torch.no_grad():
-        model.eval()
         total_loss = 0
         for i_batch, (source, target) in enumerate(eval_dataloader):
             output, _ = model(source)
@@ -123,7 +128,6 @@ def evaluate(model, eval_dataloader, criterion):
 
 def evaluate_qualitative(model, eval_dataloader, tokenizer: CharacterTokenizer):
     with torch.no_grad():
-        model.eval()
         source, target = next(iter(eval_dataloader))
         output, _ = model(source)  # [seq, bsz, d_vocab]
         output = torch.argmax(torch.softmax(output, dim=-1), dim=-1)
@@ -181,7 +185,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--model', type=str, default='cprnn', choices=list(_models.keys()))
     parser.add_argument('-e', '--epochs', type=int, default=30)
     parser.add_argument('-l', '--lr', type=float, default=1e-4)
-    parser.add_argument('-b', '--batch_size', type=int, default=32)
+    parser.add_argument('-b', '--batch_size', type=int, default=16)
     parser.add_argument('-s', '--seq_len', type=int, default=32)
     parser.add_argument('-d', '--dataset', type=str, default='data/processed/ptb',
                         help="path to folder containing train.pth, valid.pth")
@@ -193,6 +197,6 @@ if __name__ == '__main__':
     Commands
     
     // Semantic: toy rnn dataset generated with certain input size, hidden size vocab size rank
-    python train.py -d data/processed/toy-rnn-i8-h8-v4-r4  
+    python train.py -d data/processed/toy-2rnnkr-i32-h32-v16-r32
     
     """

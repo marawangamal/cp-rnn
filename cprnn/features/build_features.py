@@ -10,7 +10,7 @@ import torchtext
 
 from cprnn.features.tokenizer import CharacterTokenizer
 from cprnn.utils import save_object
-from cprnn.models import LSTM, CPLSTM, CPRNN
+from cprnn.models import LSTM, CPLSTM, CPRNN, SecondOrderRNN, SecondOrderRNNKR
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ def ptb_get_indices(dataset: torch.utils.data.Dataset):
 def ptb_make_dataset(**kwargs):
     """Merge whole dataset/corpus into single integer vector and save its tokenizer"""
     logger.info("Processing Penn Treebank dataset...")
+    import pdb; pdb.set_trace()
     for split in ['train']:
         dataset = torchtext.datasets.PennTreebank(root=osp.join(data_path['raw'], 'ptb', split), split=split)
         dataset_ids, tokenizer = ptb_get_indices(dataset)
@@ -51,13 +52,17 @@ def ptb_make_dataset(**kwargs):
     logging.info("Done. Files saved to {}".format(osp.join(data_path['processed'], 'ptb', split + '.pth')))
 
 
-def toy_make_dataset(input_size=32, hidden_size=32, vocab_size=16, rank=32, train_length=10, valid_length=10,
-                     test_length=10, model_name='cprnn', **kwargs):
+def toy_make_dataset(input_size=32, hidden_size=32, vocab_size=16, rank=32, train_length=1000, valid_length=100,
+                     test_length=100, model_name='2rnnkr', **kwargs):
     """Creates toy dataset from RNN model."""
     logger.info("Creating toy dataset...")
 
+    generator_name = 'toy-{}-i{}-h{}-v{}-r{}'.format(model_name, input_size, hidden_size, vocab_size, rank)
+    if not osp.exists(osp.join(data_path['processed'], generator_name)):
+        os.makedirs(osp.join(data_path['processed'], generator_name))
+
     # torch.manual_seed(87139)
-    models = {"cprnn": CPRNN, "cplstm": CPLSTM, "lstm": LSTM}
+    models = {"cprnn": CPRNN, "cplstm": CPLSTM, "lstm": LSTM, "2rnnkr": SecondOrderRNNKR}
 
     batch_size, sequence_length = 1, 1  # can't change these
 
@@ -73,19 +78,17 @@ def toy_make_dataset(input_size=32, hidden_size=32, vocab_size=16, rank=32, trai
         h_t_prev = torch.zeros(batch_size, model.hidden_size).to(init_id.device)
         for _ in range(dataset_length):
             output_id, output_conf, h_t = model(init_id, h_t_prev)  # [S, B, D_i]
-            print("diff: {}".format(torch.linalg.norm(h_t_prev - h_t)))
             dataset_ids.append(output_id.item())
             init_id, h_t_prev = output_id, h_t
 
-        generator_name = 'toy-rnn-i{}-h{}-v{}-r{}'.format(input_size, hidden_size, vocab_size, rank)
-        if not osp.exists(osp.join(data_path['processed'], generator_name)):
-            os.makedirs(osp.join(data_path['processed'], generator_name))
+        print("Split: {}".format(split))
+        print(dataset_ids)
 
         torch.save(torch.tensor(dataset_ids), osp.join(data_path['processed'], generator_name, split + '.pth'))
         save_object(tokenizer.tokens, osp.join(data_path['processed'], generator_name, 'tokenizer.pkl'))
 
     logging.info("Done. Files saved to {}. Train/Valid/Test length = {}/{}/{}".format(
-        osp.join(data_path['processed'], 'toy-rnn'), train_length, valid_length, test_length)
+        osp.join(data_path['processed'], generator_name), train_length, valid_length, test_length)
     )
 
 
