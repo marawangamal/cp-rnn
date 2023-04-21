@@ -6,7 +6,7 @@ import torch.nn as nn
 # Taken from: https://towardsdatascience.com/building-a-lstm-by-hand-on-pytorch-59c02a4ec091
 class LSTM(nn.Module):
     def __init__(self, input_size, hidden_size, vocab_size,
-                 embedding: nn.Embedding = None, decoder: nn.Module = None, ):
+                 embedding: nn.Embedding = None, decoder: nn.Module = None, **kwargs):
         super().__init__()
 
         self.vocab_size = vocab_size
@@ -33,8 +33,6 @@ class LSTM(nn.Module):
                 init_states=None):
         """Assumes x is of shape (batch, sequence)"""
 
-        import pdb; pdb.set_trace()
-
         if len(inp.shape) != 2:
             raise ValueError("Expected input tensor of order 2, but got order {} tensor instead".format(len(inp.shape)))
 
@@ -43,8 +41,8 @@ class LSTM(nn.Module):
         hidden_seq = []
 
         if init_states is None:
-            h_t, c_t = (torch.zeros(bs, self.hidden_size).to(x.device),
-                        torch.zeros(bs, self.hidden_size).to(x.device))
+            h_t, c_t = (torch.zeros(batch_size, self.hidden_size).to(x.device),
+                        torch.zeros(batch_size, self.hidden_size).to(x.device))
         else:
             h_t, c_t = init_states
 
@@ -68,9 +66,9 @@ class LSTM(nn.Module):
         output = self.decoder(hidden_seq.contiguous())
 
         if self.training:
-            return output, h_t
+            return output, (h_t, c_t)
         else:
 
             output_conf = torch.softmax(output, dim=-1)
             output_ids = torch.argmax(output_conf, dim=-1)  # [S, B]
-            return output_ids, output_conf, h_t
+            return output_ids, output_conf, (h_t, c_t)

@@ -5,7 +5,7 @@ import torch.nn as nn
 
 class LSTMPT(nn.Module):
     def __init__(self, input_size, hidden_size, vocab_size,
-                 embedding: nn.Embedding = None, decoder: nn.Module = None, num_layers: int = 1):
+                 embedding: nn.Embedding = None, decoder: nn.Module = None, num_layers: int = 1, **kwargs):
         super().__init__()
 
         self.vocab_size = vocab_size
