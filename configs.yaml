@@ -1,13 +1,20 @@
 train:
-  epochs: 100
+  epochs: 50
   lr: 0.001
-  batch_size: 64
+  batch_size: 128
   seq_len: 100
   grad_clip: 5
 model:
-  name: 'cprnn'
-  input_size: 1
-  hidden_size: 128
-  rank: 10
+  name: 'cprnn' # lstmpt, cprnn, 2rnn
+  input_size: 128
+  hidden_size: 512
+  rank: 32
+  batch_first: True
+  dropout: 0.5
 data:
-  path: 'data/stock_data.csv'
+  path: 'data/processed/ptb' # Path to the data
+
+
+# Options for data paths:
+#   data/processed/anna
+#   data/processed/ptb

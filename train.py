@@ -29,25 +29,26 @@ _models = {
 }
 
 
-def main(args):
-    # stream = open("configs.yaml", 'r')
-    # args = yaml.safe_load(stream)
-    # for key, value in dictionary.items():
-    #     print(key + " : " + str(value))
+def main():
+    stream = open("configs.yaml", 'r')
+    args = yaml.safe_load(stream)
+    for key, value in args.items():
+        print(key + " : " + str(value))
 
-    # https: // github.com / hjc18 / language_modeling_lstm / blob / master / main.py
     # Output location
-    if not osp.exists(osp.join(_output_paths['models'], args.dataset)):
-        os.makedirs(osp.join(_output_paths['models'], args.dataset))
+    folder_name = "{}_e{}_l{}_b{}_s{}_r{}".format(
+        args["model"]["name"], args["train"]["epochs"], str(args["train"]["lr"]).split('.')[-1],
+        args["train"]["batch_size"], args["train"]["seq_len"], args["model"]["rank"]
+    )
 
-    folder_name = "{}_e{}_l{}_b{}_s{}_r{}".format(args.model, args.epochs, str(args.lr).split('.')[-1],
-                                                  args.batch_size, args.seq_len, args.rank)
-    if not osp.exists(osp.join("runs", osp.split(args.dataset)[-1])):
-        os.makedirs(osp.join("runs", osp.split(args.dataset)[-1]))
-    output_path = osp.join("runs", osp.split(args.dataset)[-1], folder_name)
+    output_path = osp.join("runs", osp.split(args["data"]["path"])[-1], folder_name)
+    if not osp.exists(output_path):
+        os.makedirs(output_path)
+
+    with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
+        yaml.dump(args, outfile)
+
     writer = SummaryWriter(log_dir=output_path)
-
-    batch_first = True
 
     # Logging configuration
     logging.basicConfig(filename=output_path,
@@ -58,10 +59,12 @@ def main(args):
 
     # Data
     train_dataloader = PTBDataloader(
-        osp.join(args.dataset, 'train.pth'), batch_size=args.batch_size, seq_len=args.seq_len, batch_first=batch_first
+        osp.join(args["data"]["path"], 'train.pth'), batch_size=args["train"]["batch_size"],
+        seq_len=args["train"]["seq_len"], batch_first=args["model"]["batch_first"]
     )
     valid_dataloader = PTBDataloader(
-        osp.join(args.dataset, 'valid.pth'), batch_size=args.batch_size, seq_len=args.seq_len, batch_first=batch_first
+        osp.join(args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
+        seq_len=args["train"]["seq_len"], batch_first=args["model"]["batch_first"]
     )
     tokenizer = CharacterTokenizer(tokens=load_object('data/processed/ptb/tokenizer.pkl'))
 
@@ -69,25 +72,26 @@ def main(args):
     logging.info("Device: {}".format(device))
 
     # Model
-    model = _models[args.model.lower()](args.input_size, args.hidden_size, vocab_size=tokenizer.vocab_size,
-                                        rank=args.rank, batch_first=batch_first)
+    model = _models[args["model"]["name"].lower()](vocab_size=tokenizer.vocab_size, **args["model"])
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
     model.to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
 
     # Training
     best_valid_loss = None
-    for i_epoch in range(1, args.epochs + 1):
+    for i_epoch in range(1, args["train"]["epochs"] + 1):
         epoch_start_time = time.time()
         train_metrics = train(
-            model, train_dataloader, optimizer, criterion, clip=args.grad_clip, device=device,
+            model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device,
         )
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
 
         logging.info('Epoch {:4d}/{:4d} | time: {:5.2f}s | train loss {:5.2f} | '
                      'train ppl {:8.2f} | valid loss {:5.2f} | valid ppl {:8.2f}'.format(
-            i_epoch, args.epochs, (time.time() - epoch_start_time), train_metrics['loss'], train_metrics['ppl'],
-            valid_metrics['loss'], valid_metrics['ppl']
+            i_epoch, args["train"]["epochs"], (time.time() - epoch_start_time), train_metrics['loss'],
+            train_metrics['ppl'], valid_metrics['loss'], valid_metrics['ppl']
         ))
 
         # Get the gradients and log the histogram
@@ -103,6 +107,8 @@ def main(args):
                 'torchrandom_state': torch.get_rng_state(),
                 'train_metrics': valid_metrics,
                 'valid_metrics': valid_metrics,
+                'num_params': num_params,
+                'config': args
             }, osp.join(output_path, "model_best.pth"))
 
             best_valid_loss = valid_metrics['loss']
@@ -115,7 +121,7 @@ def main(args):
             model, valid_dataloader, tokenizer, device,
         )
 
-        if batch_first:
+        if args["model"]["batch_first"]:
             valid_sent_output = valid_sent_output.transpose(1, 0)
             valid_sent_target = valid_sent_target.transpose(1, 0)
             valid_sent_source = valid_sent_source.transpose(1, 0)
@@ -143,7 +149,7 @@ def main(args):
             writer.add_scalar("train/{}".format(m), train_metrics[m], i_epoch)
             writer.add_scalar("valid/{}".format(m), valid_metrics[m], i_epoch)
 
-        writer.add_scalar("LR", args.lr, i_epoch)
+        writer.add_scalar("LR", args["train"]["lr"], i_epoch)
         writer.add_text('Valid', valid_qaul_str, i_epoch)
         writer.add_text('Train', train_qaul_str, i_epoch)
         writer.add_text('Sample', sample_str, i_epoch)
@@ -238,26 +244,7 @@ def train(model, train_dataloader, optimizer, criterion, clip=5, device=torch.de
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='PyTorch PennTreeBank RNN/LSTM Language Model')
-    parser.add_argument('-m', '--model', type=str, default='cprnn', choices=list(_models.keys()))
-    parser.add_argument('-e', '--epochs', type=int, default=30)
-    parser.add_argument('-l', '--lr', type=float, default=2e-3)
-    parser.add_argument('-b', '--batch_size', type=int, default=16)
-    parser.add_argument('-s', '--seq_len', type=int, default=32)
-
-    parser.add_argument('-x', '--input_size', type=int, default=128)
-    parser.add_argument('-n', '--hidden_size', type=int, default=512)
-    parser.add_argument('-c', '--grad_clip', type=float, default=5)
-    parser.add_argument('-i', '--interval', type=int, default=200)
-
-    # model args
-    parser.add_argument('-r', '--rank', type=int, default=8)
-
-    parser.add_argument('-d', '--dataset', type=str, default='data/processed/ptb',
-                        help="path to folder containing train.pth, valid.pth")
-
-    args = parser.parse_args()
-    main(args)
+    main()
 
     """
     Commands

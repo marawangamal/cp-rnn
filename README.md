@@ -2,68 +2,41 @@
 
 This repository is the official implementation of [Paper Title](https://arxiv.org/abs/2030.12345). 
 
-## Requirements
+## Installation
 
-To install requirements:
+Install package and dependencies:
 
 ```setup
+python setup.py install
 pip install -r requirements.txt
 ```
 
-## Usage
+## Build Data
 
-**Build Data**
-To generate toy datasets:
+To generate Penn Tree Bank dataset, Anna dataset, or a toy dataset run:
+
 ```cmd
-python cprnn/features/build_features.py -d toy
+python cprnn/features/build_features.py -d [toy/ptb/anna]
 ```
+ 
 
-To build PTB:
-```cmd
-python cprnn/features/build_features.py -d ptb
-```
+## Train
 
-**Train**
+Enter training configs in `configs.yaml` then run the command below. Results will be saved in `runs` folder.
 
-To train a model on toy datasets:
 ```train
-python train.py -d data/processed/toy-rnn-i8-h8-v4-r4  
+python train.py
 ```
 
-To train on PTB
-```train
-python train.py -d data/processed/ptb  
-```
+## Sample Outputs:
 
-**Evaluate**
+CP-RNN Rank 128 @ Epoch 50
 
-To evaluate my model on ImageNet, run:
+`The took said a come in investment it were all admines in the coming thrual and spock industrial stock o
+`
 
-```eval
-python eval.py --model-file mymodel.pth --benchmark imagenet
-```
+CP-RNN Rank 16 @ Epoch 50
 
-## Pre-trained Models
+`Then they in monced this and the as anessue otton thestences a n't as big sayernment agricens is costsha
+`
 
-You can download pretrained models here:
-
-- [My awesome model](https://drive.google.com/mymodel.pth) trained on ImageNet using parameters x,y,z. 
-
->📋  Give a link to where/how the pretrained models can be downloaded and how they were trained (if applicable).  Alternatively you can have an additional column in your results table with a link to the models.
-
-## Results
-
-Our model achieves the following performance on :
-
-### [Image Classification on ImageNet](https://paperswithcode.com/sota/image-classification-on-imagenet)
-
-| Model name         | Top 1 Accuracy  | Top 5 Accuracy |
-| ------------------ |---------------- | -------------- |
-| My awesome model   |     85%         |      95%       |
-
->📋  Include a table of results from your paper, and link back to the leaderboard for clarity and context. If your main result is a figure, include that figure and link to the command or notebook to reproduce it. 
-
-
-## Contributing
-
->📋  Pick a licence and describe how to contribute to your code repository. 

@@ -1,6 +1,7 @@
 import math
 from typing import Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -14,8 +15,11 @@ class CPRNN(nn.Module):
         rank: Rank of cp factorization
     """
     def __init__(self, input_size, hidden_size, vocab_size, use_embedding: bool = False, num_layers: int = 2,
-                 rank=8, tokenizer=None, **kwargs):
+                 rank=8, tokenizer=None, batch_first=True, dropout: float = 0.5, **kwargs):
         super().__init__()
+
+        self.dropout = dropout
+        self.batch_first = batch_first
         self.tokenizer = tokenizer
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -31,7 +35,10 @@ class CPRNN(nn.Module):
             self.embedding = lambda x: torch.nn.functional.one_hot(x, vocab_size).float()
             self.input_size = vocab_size
 
-        self.decoder = nn.Linear(self.hidden_size, self.vocab_size)
+        self.decoder = nn.Sequential(
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, self.vocab_size)
+        )
 
         # Encoder using CP factors
         self.a = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.rank))
@@ -45,33 +52,41 @@ class CPRNN(nn.Module):
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv)
 
-    def init_hidden(self, batch_size, device):
+    def init_hidden(self, batch_size, device=torch.device('cpu')):
         h = torch.zeros(batch_size, self.hidden_size).to(device)
         return h
 
-    def predict(self, inp: Union[torch.LongTensor, str], init_states: tuple = None, top_k: int = 1):
+    def predict(self, inp: Union[torch.LongTensor, str], init_states: tuple = None, top_k: int = 1,
+                device=torch.device('cpu')):
 
-        if isinstance(inp, str):
-            if self.tokenizer is None:
-                raise ValueError("Tokenizer not defined. Please provide a tokenizer to the model.")
-            inp = torch.tensor(self.tokenizer.char_to_ix(inp)).reshape(1, 1)
+        with torch.no_grad():
 
-        output, init_states = self.forward(inp, init_states)
-        output_conf = torch.softmax(output, dim=-1)  # [S, B, Din]
-        output_topk = torch.topk(output_conf, top_k, dim=-1)  # [S, B, K]
+            if isinstance(inp, str):
+                if self.tokenizer is None:
+                    raise ValueError("Tokenizer not defined. Please provide a tokenizer to the model.")
+                x = torch.tensor(self.tokenizer.char_to_ix(inp)).reshape(1, 1).to(device)
+            else:
+                x = inp.to(device)
 
-        k_star = torch.randint(0, top_k, (1, 1)).item()
-        output_ids = output_topk[1][:, :, k_star]
+            output, init_states = self.forward(x, init_states)
+            output_conf = torch.softmax(output, dim=-1)  # [S, B, Din]
+            output_topk = torch.topk(output_conf, top_k, dim=-1)  # [S, B, K]
 
-        if isinstance(inp, str):
-            output_char = self.tokenizer.ix_to_char(output_ids.item())
-            return output_char, init_states
+            prob = output_topk[0].reshape(-1) / output_topk[0].reshape(-1).sum()
+            k_star = np.random.choice(np.arange(top_k), p=prob.cpu().numpy())
+            output_ids = output_topk[1][:, :, k_star]
 
-        else:
-            return output_ids, init_states
+            if isinstance(inp, str):
+                output_char = self.tokenizer.ix_to_char(output_ids.item())
+                return output_char, init_states
+            else:
+                return output_ids, init_states
 
     def forward(self, inp: torch.LongTensor,
-                init_state: torch.Tensor = None):
+                init_states: torch.Tensor = None):
+
+        if self.batch_first:
+            inp = inp.transpose(0, 1)
 
         if len(inp.shape) != 2:
             raise ValueError("Expected input tensor of order 2, but got order {} tensor instead".format(len(inp.shape)))
@@ -82,11 +97,13 @@ class CPRNN(nn.Module):
 
         device = x.device
 
-        if init_state is None:
+        if init_states is None:
             h_t = torch.zeros(batch_size, self.hidden_size).to(x.device)
 
         else:
-            h_t = init_state
+            h_t = init_states
+            device = next(self.parameters()).device
+            h_t = h_t.to(device)
 
         for t in range(sequence_length):
             x_t = x[t, :, :]
@@ -104,5 +121,8 @@ class CPRNN(nn.Module):
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
         output = self.decoder(hidden_seq.contiguous())
+
+        if self.batch_first:
+            output = output.transpose(0, 1)
 
         return output, h_t

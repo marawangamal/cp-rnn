@@ -66,7 +66,6 @@ class LSTMPT(nn.Module):
             output_topk = torch.topk(output_conf, top_k, dim=-1)  # [S, B, K]
 
             prob = output_topk[0].reshape(-1) / output_topk[0].reshape(-1).sum()
-            # k_star = torch.randint(0, top_k, (1, 1)).item()
             k_star = np.random.choice(np.arange(top_k), p=prob.cpu().numpy())
             output_ids = output_topk[1][:, :, k_star]
 
