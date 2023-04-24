@@ -1,0 +1,13 @@
+train:
+  epochs: 100
+  lr: 0.001
+  batch_size: 64
+  seq_len: 100
+  grad_clip: 5
+model:
+  name: 'cprnn'
+  input_size: 1
+  hidden_size: 128
+  rank: 10
+data:
+  path: 'data/stock_data.csv'

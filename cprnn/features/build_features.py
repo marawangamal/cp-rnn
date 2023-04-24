@@ -4,6 +4,7 @@ import sys
 import string
 import os.path as osp
 import argparse as argparse
+import urllib.request as urllib2
 
 import torch
 import torchtext
@@ -15,10 +16,10 @@ from cprnn.models import LSTM, CPLSTM, CPRNN, SecondOrderRNN, SecondOrderRNNKR, 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))  # This is your Project Root
+ROOT_DIR = osp.split(osp.split(os.path.dirname(os.path.abspath(__file__)))[0])[0]  # Project Root
 data_path = {
-    "raw": osp.join(osp.split(osp.split(ROOT_DIR)[0])[0], "data", "raw"),
-    "processed": osp.join(osp.split(osp.split(ROOT_DIR)[0])[0], "data", "processed")
+    "raw": osp.join(ROOT_DIR, "data", "raw"),
+    "processed": osp.join(ROOT_DIR, "data", "processed")
 }
 
 models = {"cprnn": CPRNN, "cplstm": CPLSTM, "lstm": LSTM, "2rnnkr": SecondOrderRNNKR, "lstmpt": LSTMPT}
@@ -41,7 +42,6 @@ def ptb_get_indices(dataset: torch.utils.data.Dataset):
 def ptb_make_dataset(**kwargs):
     """Merge whole dataset/corpus into single integer vector and save its tokenizer"""
     logger.info("Processing Penn Treebank dataset...")
-    import pdb; pdb.set_trace()
     for split in ['train']:
         dataset = torchtext.datasets.PennTreebank(root=osp.join(data_path['raw'], 'ptb', split), split=split)
         dataset_ids, tokenizer = ptb_get_indices(dataset)
@@ -78,7 +78,6 @@ def toy_make_dataset(input_size=32, hidden_size=32, vocab_size=16, rank=32, trai
 
         hidden_state_prev = None
         for i in range(dataset_length):
-
             output_ids, output_conf, hidden_state = model(input_ids, hidden_state_prev)  # [S, B, D_i]
             dataset_ids.append(output_ids.item())
             input_ids, hidden_state_prev = output_ids, hidden_state
@@ -95,9 +94,40 @@ def toy_make_dataset(input_size=32, hidden_size=32, vocab_size=16, rank=32, trai
     )
 
 
+def anna_make_dataset(**kwargs):
+    url = "https://raw.githubusercontent.com/udacity/deep-learning-v2-pytorch/master/recurrent-neural-networks/char" \
+          "-rnn/data/anna.txt "
+
+    dataset_ids = list()
+    tokenizer = CharacterTokenizer(tokens=[s for s in string.printable])
+
+    if not osp.exists(osp.join(data_path['raw'], "anna")):
+        os.makedirs(osp.join(data_path['raw'], "anna"))
+
+    with open(osp.join(data_path['raw'], "anna", "anna.txt"), "a") as f:
+        data = urllib2.urlopen(url)
+        logging.info("Processing Anna Karenina dataset...")
+        for line in data:  # files are iterable
+            dataset_ids.extend([tokenizer.char_to_ix(s) for s in line.decode("utf-8").strip()])
+            f.write(line.decode("utf-8"))
+
+    train, valid, test = dataset_ids[:int(0.8 * len(dataset_ids))], \
+                         dataset_ids[int(0.8 * len(dataset_ids)):int(0.9 * len(dataset_ids))], \
+                         dataset_ids[int(0.9 * len(dataset_ids)):]
+
+    if not osp.exists(osp.join(data_path['processed'], 'anna')):
+        os.makedirs(osp.join(data_path['processed'], 'anna'))
+
+    for split, dataset_ids in zip(['train', 'valid', 'test'], [train, valid, test]):
+        logging.info("Saving {} split...({} Points)".format(split, len(dataset_ids)))
+        torch.save(torch.tensor(dataset_ids), osp.join(data_path['processed'], 'anna', split + '.pth'))
+    save_object(tokenizer.tokens, osp.join(data_path['processed'], 'anna', 'tokenizer.pkl'))
+
+
 make_dataset_functions = {
     'ptb': ptb_make_dataset,
-    'toy': toy_make_dataset
+    'toy': toy_make_dataset,
+    "anna": anna_make_dataset
 }
 
 if __name__ == '__main__':

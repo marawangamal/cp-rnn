@@ -4,3 +4,4 @@ from .cp_rnn import CPRNN
 from .second_order_rnn import SecondOrderRNN
 from .second_order_rnn_kr import SecondOrderRNNKR
 from .lstmpt import LSTMPT
+from .charrnn import CharRNN as CharRNNx

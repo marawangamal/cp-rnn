@@ -1,4 +1,5 @@
 import math
+from typing import Union
 
 import torch
 import torch.nn as nn
@@ -12,17 +13,25 @@ class CPRNN(nn.Module):
         hidden_size: Dimension of hidden features.
         rank: Rank of cp factorization
     """
-    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, rank: int = 8,
-                 embedding: nn.Embedding = None, decoder: nn.Module = None, **kwargs):
+    def __init__(self, input_size, hidden_size, vocab_size, use_embedding: bool = False, num_layers: int = 2,
+                 rank=8, tokenizer=None, **kwargs):
         super().__init__()
+        self.tokenizer = tokenizer
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
         self.rank = rank
 
         # Define embedding and decoder layers
-        self.embedding = nn.Embedding(self.vocab_size, self.input_size) if embedding is None else embedding
-        self.decoder = nn.Linear(self.hidden_size, self.vocab_size) if decoder is None else decoder
+        if use_embedding:
+            self.embedding = nn.Embedding(self.vocab_size, self.input_size)
+
+        else:
+            # One hot version
+            self.embedding = lambda x: torch.nn.functional.one_hot(x, vocab_size).float()
+            self.input_size = vocab_size
+
+        self.decoder = nn.Linear(self.hidden_size, self.vocab_size)
 
         # Encoder using CP factors
         self.a = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.rank))
@@ -36,6 +45,31 @@ class CPRNN(nn.Module):
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv)
 
+    def init_hidden(self, batch_size, device):
+        h = torch.zeros(batch_size, self.hidden_size).to(device)
+        return h
+
+    def predict(self, inp: Union[torch.LongTensor, str], init_states: tuple = None, top_k: int = 1):
+
+        if isinstance(inp, str):
+            if self.tokenizer is None:
+                raise ValueError("Tokenizer not defined. Please provide a tokenizer to the model.")
+            inp = torch.tensor(self.tokenizer.char_to_ix(inp)).reshape(1, 1)
+
+        output, init_states = self.forward(inp, init_states)
+        output_conf = torch.softmax(output, dim=-1)  # [S, B, Din]
+        output_topk = torch.topk(output_conf, top_k, dim=-1)  # [S, B, K]
+
+        k_star = torch.randint(0, top_k, (1, 1)).item()
+        output_ids = output_topk[1][:, :, k_star]
+
+        if isinstance(inp, str):
+            output_char = self.tokenizer.ix_to_char(output_ids.item())
+            return output_char, init_states
+
+        else:
+            return output_ids, init_states
+
     def forward(self, inp: torch.LongTensor,
                 init_state: torch.Tensor = None):
 
@@ -46,6 +80,8 @@ class CPRNN(nn.Module):
         sequence_length, batch_size, _ = x.size()
         hidden_seq = []
 
+        device = x.device
+
         if init_state is None:
             h_t = torch.zeros(batch_size, self.hidden_size).to(x.device)
 
@@ -55,19 +91,18 @@ class CPRNN(nn.Module):
         for t in range(sequence_length):
             x_t = x[t, :, :]
 
-            a_prime = torch.cat((h_t, torch.ones(batch_size, 1)), dim=1) @ self.a  # [B, D_h][D_h, R] => [B, R]
-            b_prime = torch.cat((x_t, torch.ones(batch_size, 1)), dim=1) @ self.b  # [B, D_i'][D_i', R] => [B, R]
-            h_tnew = torch.sigmoid(torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c))
+            # [B, D_h][D_h, R] => [B, R]
+            a_prime = torch.cat((h_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.a
+
+            # [B, D_i'][D_i', R] => [B, R]
+            b_prime = torch.cat((x_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.b
+            h_tnew = torch.sigmoid(
+                torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c) + self.bias
+            )
             hidden_seq.append(h_tnew.unsqueeze(0))
             h_t = h_tnew
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
         output = self.decoder(hidden_seq.contiguous())
 
-        if self.training:
-            return output, h_t
-        else:
-
-            output_conf = torch.softmax(output, dim=-1)
-            output_ids = torch.argmax(output_conf, dim=-1)  # [S, B]
-            return output_ids, output_conf, h_t
+        return output, h_t

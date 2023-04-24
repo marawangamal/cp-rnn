@@ -26,18 +26,18 @@ class CharacterTokenizer:
     def char_to_ix(self, char: str = None):
         return self.char_to_ix_dct[char]
 
-    def ix_to_char(self, char: Union[str, np.ndarray] = None):
+    def ix_to_char(self, ix: Union[int, np.ndarray] = None):
 
-        if isinstance(char, np.ndarray):
+        if isinstance(ix, np.ndarray):
             def f(x):
                 return self.ix_to_char_dct[x]
             vf = np.vectorize(f)
-            return vf(char)
+            return vf(ix)
 
-        elif isinstance(char, str):
-            return self.ix_to_char_dct[char]
+        elif any([isinstance(ix, d) for d in [int, np.int32, np.int64]]):
+            return self.ix_to_char_dct[ix]
         else:
-            raise ValueError("Tokenizer expected either str or array as input but got {}".format(type(char)))
+            raise ValueError("Tokenizer expected either int or array as input but got {}".format(type(ix)))
 
     def tokenize(self, sentence: str = None):
         return np.array(list(map(self.char_to_ix, sentence)), dtype=np.int32)

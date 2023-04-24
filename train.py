@@ -1,6 +1,9 @@
 import math
 import os
 import time
+import yaml
+
+import logging
 import os.path as osp
 import argparse as argparse
 
@@ -12,12 +15,6 @@ from cprnn.utils import load_object, AverageMeter
 from cprnn.models import LSTM, CPLSTM, CPRNN, SecondOrderRNNKR, LSTMPT
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
-
-
-# _data_paths = {
-#     "ptb": "data/processed/ptb",
-#     "toy8": "data/processed/toy-rnn8"  # rank 8
-# }
 
 _output_paths = {
     "models": "models"
@@ -33,55 +30,72 @@ _models = {
 
 
 def main(args):
-    input_size = 128
-    hidden_size = 256
-    grad_clip = 0.25
-    interval = 200
+    # stream = open("configs.yaml", 'r')
+    # args = yaml.safe_load(stream)
+    # for key, value in dictionary.items():
+    #     print(key + " : " + str(value))
 
-    # Data
-    train_dataloader = PTBDataloader(
-        osp.join(args.dataset, 'train.pth'), batch_size=args.batch_size, seq_len=args.seq_len
-    )
-    valid_dataloader = PTBDataloader(
-        osp.join(args.dataset, 'valid.pth'), batch_size=args.batch_size, seq_len=args.seq_len
-    )
-    tokenizer = CharacterTokenizer(tokens=load_object('data/processed/ptb/tokenizer.pkl'))
-
-    # Model
-    model = _models[args.model.lower()](input_size, hidden_size, vocab_size=tokenizer.vocab_size)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-
+    # https: // github.com / hjc18 / language_modeling_lstm / blob / master / main.py
     # Output location
     if not osp.exists(osp.join(_output_paths['models'], args.dataset)):
         os.makedirs(osp.join(_output_paths['models'], args.dataset))
 
-    filename = "{}_e{}_l{}_b{}_s{}.pth".format(args.model, args.epochs, str(args.lr).split('.')[-1],
-                                               args.batch_size, args.seq_len)
-
+    folder_name = "{}_e{}_l{}_b{}_s{}_r{}".format(args.model, args.epochs, str(args.lr).split('.')[-1],
+                                                  args.batch_size, args.seq_len, args.rank)
     if not osp.exists(osp.join("runs", osp.split(args.dataset)[-1])):
         os.makedirs(osp.join("runs", osp.split(args.dataset)[-1]))
-    output_path = osp.join("runs", osp.split(args.dataset)[-1], filename)
-    writer = SummaryWriter(log_dir=osp.join("runs", osp.split(args.dataset)[-1]))
+    output_path = osp.join("runs", osp.split(args.dataset)[-1], folder_name)
+    writer = SummaryWriter(log_dir=output_path)
+
+    batch_first = True
+
+    # Logging configuration
+    logging.basicConfig(filename=output_path,
+                        filemode='a',
+                        format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                        datefmt='%H:%M:%S',
+                        level=logging.DEBUG)
+
+    # Data
+    train_dataloader = PTBDataloader(
+        osp.join(args.dataset, 'train.pth'), batch_size=args.batch_size, seq_len=args.seq_len, batch_first=batch_first
+    )
+    valid_dataloader = PTBDataloader(
+        osp.join(args.dataset, 'valid.pth'), batch_size=args.batch_size, seq_len=args.seq_len, batch_first=batch_first
+    )
+    tokenizer = CharacterTokenizer(tokens=load_object('data/processed/ptb/tokenizer.pkl'))
+
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    logging.info("Device: {}".format(device))
+
+    # Model
+    model = _models[args.model.lower()](args.input_size, args.hidden_size, vocab_size=tokenizer.vocab_size,
+                                        rank=args.rank, batch_first=batch_first)
+    model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # Training
     best_valid_loss = None
     for i_epoch in range(1, args.epochs + 1):
         epoch_start_time = time.time()
-        train_metrics = train(model, train_dataloader, optimizer, criterion, i_epoch, interval, grad_clip)
-        valid_metrics = evaluate(model, valid_dataloader, criterion)
-        print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
-              'valid ppl {:8.2f}'.format(
-            i_epoch, (time.time() - epoch_start_time), valid_metrics['loss'], math.exp(valid_metrics['loss'])
+        train_metrics = train(
+            model, train_dataloader, optimizer, criterion, clip=args.grad_clip, device=device,
+        )
+        valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
+
+        logging.info('Epoch {:4d}/{:4d} | time: {:5.2f}s | train loss {:5.2f} | '
+                     'train ppl {:8.2f} | valid loss {:5.2f} | valid ppl {:8.2f}'.format(
+            i_epoch, args.epochs, (time.time() - epoch_start_time), train_metrics['loss'], train_metrics['ppl'],
+            valid_metrics['loss'], valid_metrics['ppl']
         ))
 
-        # Logging
-        writer.add_scalar("Loss/train", train_metrics['loss'], i_epoch)
-        writer.add_scalar("Loss/valid", valid_metrics['loss'], i_epoch)
+        # Get the gradients and log the histogram
+        for name, param in model.named_parameters():
+            writer.add_histogram(f"{name}.grad", param.grad, i_epoch)
 
         # Save the model if the validation loss is the best we've seen so far.
         if not best_valid_loss or valid_metrics['loss'] < best_valid_loss:
-
             torch.save({
                 'epoch': i_epoch,
                 'optimizer_state_dict': optimizer.state_dict(),
@@ -89,104 +103,156 @@ def main(args):
                 'torchrandom_state': torch.get_rng_state(),
                 'train_metrics': valid_metrics,
                 'valid_metrics': valid_metrics,
-            }, output_path)
+            }, osp.join(output_path, "model_best.pth"))
 
             best_valid_loss = valid_metrics['loss']
 
-        else:
-            # Anneal the learning rate if no improvement has been seen in the validation dataset.
-            if args.opt == 'SGD' or args.opt == 'Momentum':
-                args.lr /= 4.0
-                for group in optimizer.param_groups:
-                    group['lr'] = args.lr
-
         # Qualitative prediction
-        sentences_output, sentences_target = evaluate_qualitative(model, valid_dataloader, tokenizer)
-        print("\nQualitative:\n============\nTarget:\n{}\nPrediction:\n{}\n".format(
-            "".join(sentences_target[:, 0]), "".join(sentences_output[:, 0])
-        ))
+        train_sent_output, train_sent_target, train_sent_source = evaluate_qualitative(
+            model, train_dataloader, tokenizer, device,
+        )
+        valid_sent_output, valid_sent_target, valid_sent_source = evaluate_qualitative(
+            model, valid_dataloader, tokenizer, device,
+        )
+
+        if batch_first:
+            valid_sent_output = valid_sent_output.transpose(1, 0)
+            valid_sent_target = valid_sent_target.transpose(1, 0)
+            valid_sent_source = valid_sent_source.transpose(1, 0)
+            train_sent_output = train_sent_output.transpose(1, 0)
+            train_sent_target = train_sent_target.transpose(1, 0)
+            train_sent_source = train_sent_source.transpose(1, 0)
+
+        valid_qaul_str = "Source:  \n{}  \nTarget:  \n{}  \nPrediction:  \n{}".format(
+            "".join(valid_sent_source[:, 0]), "".join(valid_sent_target[:, 0]), "".join(valid_sent_output[:, 0])
+        )
+
+        train_qaul_str = "Source:  \n{}  \nTarget:  \n{}  \nPrediction:  \n{}".format(
+            "".join(train_sent_source[:, 0]), "".join(train_sent_target[:, 0]), "".join(train_sent_output[:, 0])
+        )
+
+        sample_str = sample(model, size=100, prime='The', top_k=5, device=device, tokenizer=tokenizer)
+
+        # Sample
+        logging.info("Train:\n{}".format(train_qaul_str))
+        logging.info("Validation:\n{}".format(valid_qaul_str))
+        logging.info("Sample:\n{}".format(sample_str))
+
+        # Logging
+        for m in train_metrics.keys():
+            writer.add_scalar("train/{}".format(m), train_metrics[m], i_epoch)
+            writer.add_scalar("valid/{}".format(m), valid_metrics[m], i_epoch)
+
+        writer.add_scalar("LR", args.lr, i_epoch)
+        writer.add_text('Valid', valid_qaul_str, i_epoch)
+        writer.add_text('Train', train_qaul_str, i_epoch)
+        writer.add_text('Sample', sample_str, i_epoch)
 
     writer.flush()
     writer.close()
 
 
-def evaluate(model, eval_dataloader, criterion):
-    with torch.no_grad():
-        total_loss = 0
-        for i_batch, (source, target) in enumerate(eval_dataloader):
-            output, _ = model(source)
-            batch_size, seq_len, output_size = output.shape
-            loss = criterion(output.view(seq_len * batch_size, -1), target.view(batch_size * seq_len))
-            total_loss += loss.data
+def sample(model, tokenizer, device=torch.device('cpu'), size=100, prime='The', top_k=5):
+    # First off, run through the prime characters
+    chars = [ch for ch in prime]
 
-    eval_metrics = {
-        "loss": total_loss / (len(eval_dataloader) * eval_dataloader.batch_size)
-    }
+    init_states = model.init_hidden(batch_size=1, device=device)
 
-    return eval_metrics
+    for ch in prime:
+        inp = torch.tensor(tokenizer.char_to_ix(ch)).reshape(1, 1).to(device)
+        output_id, init_states = model.predict(inp, init_states, top_k=top_k, device=device)
+
+    chars.append(tokenizer.ix_to_char(output_id.item()))
+
+    # Now pass in the previous character and get a new one
+    for ii in range(size):
+        inp = torch.tensor(tokenizer.char_to_ix(chars[-1])).reshape(1, 1).to(device)
+        output_id, init_states = model.predict(inp, init_states, top_k=top_k, device=device)
+        chars.append(tokenizer.ix_to_char(output_id.item()))
+
+    return ''.join(chars)
 
 
-def evaluate_qualitative(model, eval_dataloader, tokenizer: CharacterTokenizer):
+def evaluate_qualitative(model, eval_dataloader, tokenizer: CharacterTokenizer, device: torch.device):
     with torch.no_grad():
         source, target = next(iter(eval_dataloader))
-        output, _ = model(source)  # [seq, bsz, d_vocab]
+        source, target = source.to(device), target.to(device)
+        output, _ = model(source)  # [bsz, seq, d_vocab]
         output = torch.argmax(torch.softmax(output, dim=-1), dim=-1)
         sentences_output = tokenizer.ix_to_char(output.cpu().detach().numpy())
         sentences_target = tokenizer.ix_to_char(target.cpu().detach().numpy())
-    return sentences_output, sentences_target
+        sentences_source = tokenizer.ix_to_char(source.cpu().detach().numpy())
+
+    return sentences_output, sentences_target, sentences_source
 
 
-def train(model, train_dataloader, optimizer, criterion, i_epoch, interval, grad_clip):
-    """Loop over dataset"""
+def evaluate(model, eval_dataloader, criterion, device):
+    with torch.no_grad():
+        model.to(device)
+        loss_average_meter = AverageMeter()
+        ppl_average_meter = AverageMeter()
+        for inputs, targets in eval_dataloader:
+            inputs, targets = inputs.to(device), targets.to(device)
+
+            output, _ = model(inputs)
+            n_seqs_curr, n_steps_curr = output.shape[0], output.shape[1]
+            loss = criterion(output.reshape(n_seqs_curr * n_steps_curr, -1),
+                             targets.reshape(n_seqs_curr * n_steps_curr))
+
+            loss_average_meter.add(loss.item())
+            ppl_average_meter.add(torch.exp(loss).item())
+
+    return {"loss": loss_average_meter.value,
+            "ppl": ppl_average_meter.value}
+
+
+def train(model, train_dataloader, optimizer, criterion, clip=5, device=torch.device('cpu')):
     model.train()
-    iteration = 0
-    total_loss = 0
-    start_time = time.time()
-    train_loss_average_meter = AverageMeter()
-    for i_batch, (source, target) in enumerate(train_dataloader):  # [L, BS]
-        output, _ = model(source)
-        batch_size, seq_len, output_size = output.shape
+    model.to(device)
+    loss_average_meter = AverageMeter()
+    ppl_average_meter = AverageMeter()
 
-        loss = criterion(output.view(batch_size * seq_len, -1), target.view(seq_len * batch_size))
-        optimizer.zero_grad()
+    # for x, y in get_batches(data, n_seqs, n_steps):
+    for i_batch, (inputs, targets) in enumerate(train_dataloader):  # [L, BS]
+
+        inputs, targets = inputs.to(device), targets.to(device)
+
+        model.zero_grad()
+        output, _ = model.forward(inputs)
+
+        n_seqs_curr, n_steps_curr = output.shape[0], output.shape[1]
+        loss = criterion(output.reshape(n_seqs_curr * n_steps_curr, -1),
+                         targets.reshape(n_seqs_curr * n_steps_curr))
         loss.backward()
 
-        # Log
-        train_loss_average_meter.add(loss.item())
-
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        nn.utils.clip_grad_norm_(model.parameters(), clip)
+
         optimizer.step()
 
-        total_loss += loss.data
+        loss_average_meter.add(loss.item())
+        ppl_average_meter.add(torch.exp(loss).item())
 
-        if iteration % interval == 0:
-            cur_loss = total_loss / interval
-            elapsed = time.time() - start_time
-            print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} '
-                  '| loss {:5.5f} | ppl {:8.2f}'.format(i_epoch,
-                                                        i_batch, len(train_dataloader),
-                                                        args.lr,
-                                                        elapsed * 1000 / interval,
-                                                        cur_loss,
-                                                        math.exp(cur_loss)))
-            total_loss = 0
-            start_time = time.time()
-
-        train_metrics = {
-            "loss": train_loss_average_meter.value
-        }
-
-        return train_metrics
+    return {"loss": loss_average_meter.value,
+            "ppl": ppl_average_meter.value}
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch PennTreeBank RNN/LSTM Language Model')
     parser.add_argument('-m', '--model', type=str, default='cprnn', choices=list(_models.keys()))
     parser.add_argument('-e', '--epochs', type=int, default=30)
-    parser.add_argument('-l', '--lr', type=float, default=1e-4)
+    parser.add_argument('-l', '--lr', type=float, default=2e-3)
     parser.add_argument('-b', '--batch_size', type=int, default=16)
     parser.add_argument('-s', '--seq_len', type=int, default=32)
+
+    parser.add_argument('-x', '--input_size', type=int, default=128)
+    parser.add_argument('-n', '--hidden_size', type=int, default=512)
+    parser.add_argument('-c', '--grad_clip', type=float, default=5)
+    parser.add_argument('-i', '--interval', type=int, default=200)
+
+    # model args
+    parser.add_argument('-r', '--rank', type=int, default=8)
+
     parser.add_argument('-d', '--dataset', type=str, default='data/processed/ptb',
                         help="path to folder containing train.pth, valid.pth")
 
@@ -198,5 +264,7 @@ if __name__ == '__main__':
     
     // Semantic: toy rnn dataset generated with certain input size, hidden size vocab size rank
     python train.py -d data/processed/toy-2rnnkr-i32-h32-v16-r32
+    
+    python train.py -d data/processed/anna
     
     """
