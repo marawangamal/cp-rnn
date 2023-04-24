@@ -1,18 +1,16 @@
-import math
 import os
 import time
 import yaml
 
 import logging
 import os.path as osp
-import argparse as argparse
 
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from cprnn.utils import load_object, AverageMeter
-from cprnn.models import LSTM, CPLSTM, CPRNN, SecondOrderRNNKR, LSTMPT
+from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
 
@@ -21,10 +19,8 @@ _output_paths = {
 }
 
 _models = {
-    "lstm": LSTM,
-    "cplstm": CPLSTM,
     "cprnn": CPRNN,
-    "2rnn": SecondOrderRNNKR,
+    "2rnn": SecondOrderRNN,
     "lstmpt": LSTMPT
 }
 
@@ -44,6 +40,10 @@ def main():
     output_path = osp.join("runs", osp.split(args["data"]["path"])[-1], folder_name)
     if not osp.exists(output_path):
         os.makedirs(output_path)
+    else:
+        raise ValueError("Experiment `{}` already exists.".format(
+            folder_name
+        ))
 
     with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
         yaml.dump(args, outfile)
@@ -51,11 +51,16 @@ def main():
     writer = SummaryWriter(log_dir=output_path)
 
     # Logging configuration
-    logging.basicConfig(filename=output_path,
-                        filemode='a',
-                        format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                        datefmt='%H:%M:%S',
-                        level=logging.DEBUG)
+    logging.basicConfig(
+        level=logging.INFO,
+        # format="%(asctime)s [%(levelname)s] %(message)s",
+        format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+        datefmt='%H:%M:%S',
+        handlers=[
+            logging.FileHandler(osp.join(output_path, "logging.txt")),
+            logging.StreamHandler()
+        ]
+    )
 
     # Data
     train_dataloader = PTBDataloader(
@@ -79,12 +84,17 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
 
+    # Parallelize the model
+    if torch.cuda.device_count() > 1:
+        logging.info("Using {} GPUs".format(torch.cuda.device_count()))
+        model = nn.DataParallel(model)
+
     # Training
     best_valid_loss = None
     for i_epoch in range(1, args["train"]["epochs"] + 1):
         epoch_start_time = time.time()
         train_metrics = train(
-            model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device,
+            model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device
         )
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
 
@@ -96,7 +106,8 @@ def main():
 
         # Get the gradients and log the histogram
         for name, param in model.named_parameters():
-            writer.add_histogram(f"{name}.grad", param.grad, i_epoch)
+            if param.grad is not None:
+                writer.add_histogram(f"{name}.grad", param.grad, i_epoch)
 
         # Save the model if the validation loss is the best we've seen so far.
         if not best_valid_loss or valid_metrics['loss'] < best_valid_loss:
@@ -162,18 +173,19 @@ def sample(model, tokenizer, device=torch.device('cpu'), size=100, prime='The', 
     # First off, run through the prime characters
     chars = [ch for ch in prime]
 
-    init_states = model.init_hidden(batch_size=1, device=device)
+    model_alias = model.module if isinstance(model, nn.DataParallel) else model
+    init_states = model_alias.init_hidden(batch_size=1, device=device)
 
     for ch in prime:
         inp = torch.tensor(tokenizer.char_to_ix(ch)).reshape(1, 1).to(device)
-        output_id, init_states = model.predict(inp, init_states, top_k=top_k, device=device)
+        output_id, init_states = model_alias.predict(inp, init_states, top_k=top_k, device=device)
 
     chars.append(tokenizer.ix_to_char(output_id.item()))
 
     # Now pass in the previous character and get a new one
     for ii in range(size):
         inp = torch.tensor(tokenizer.char_to_ix(chars[-1])).reshape(1, 1).to(device)
-        output_id, init_states = model.predict(inp, init_states, top_k=top_k, device=device)
+        output_id, init_states = model_alias.predict(inp, init_states, top_k=top_k, device=device)
         chars.append(tokenizer.ix_to_char(output_id.item()))
 
     return ''.join(chars)
@@ -194,7 +206,6 @@ def evaluate_qualitative(model, eval_dataloader, tokenizer: CharacterTokenizer, 
 
 def evaluate(model, eval_dataloader, criterion, device):
     with torch.no_grad():
-        model.to(device)
         loss_average_meter = AverageMeter()
         ppl_average_meter = AverageMeter()
         for inputs, targets in eval_dataloader:
@@ -214,7 +225,6 @@ def evaluate(model, eval_dataloader, criterion, device):
 
 def train(model, train_dataloader, optimizer, criterion, clip=5, device=torch.device('cpu')):
     model.train()
-    model.to(device)
     loss_average_meter = AverageMeter()
     ppl_average_meter = AverageMeter()
 
