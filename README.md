@@ -11,9 +11,9 @@ python setup.py install
 pip install -r requirements.txt
 ```
 
-## Build Data
+## Build data
 
-To generate Penn Tree Bank dataset, Anna dataset, or a toy dataset run:
+To generate Penn Tree Bank dataset, Anna dataset or a Toy dataset run:
 
 ```cmd
 python cprnn/features/build_features.py -d [toy/ptb/anna]
@@ -28,7 +28,12 @@ Enter training configs in `configs.yaml` then run the command below. Results wil
 python train.py
 ```
 
-## Sample Outputs:
+## Visualize
+```train
+tensorboard --logdir=runs
+```
+
+## Sample Outputs
 
 CP-RNN Rank 128 @ Epoch 50
 
