@@ -4,10 +4,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from cprnn.features.tokenizer import CharacterTokenizer
+
 
 class LSTMPT(nn.Module):
-    def __init__(self, input_size, hidden_size, vocab_size, use_embedding: bool = False, num_layers: int = 2, 
-                 tokenizer=None, batch_first=True, dropout: float = 0.5, **kwargs):
+    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False,
+                 num_layers: int = 2, tokenizer: CharacterTokenizer = None, batch_first: bool = True,
+                 dropout: float = 0.5, **kwargs):
         super().__init__()
 
         self.dropout = dropout
@@ -35,14 +38,6 @@ class LSTMPT(nn.Module):
 
         self.rnn = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers,
                            dropout=self.dropout)
-        # self.init_weights()
-
-    def init_weights(self):
-
-        # Set bias tensor to all zeros
-        self.decoder.bias.data.fill_(0)
-        # FC weights as random uniform
-        self.decoder.weight.data.uniform_(-1, 1)
 
     def init_hidden(self, batch_size, device=torch.device('cpu')):
         (h, c) = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device), \

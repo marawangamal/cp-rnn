@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from cprnn.features.tokenizer import CharacterTokenizer
+
 
 class CPRNN(nn.Module):
     """CP-Factorized LSTM. Outputs logits (no softmax)
@@ -12,10 +14,16 @@ class CPRNN(nn.Module):
     Args:
         input_size: Dimension of input features.
         hidden_size: Dimension of hidden features.
+        vocab_size: Size of vocabulary
+        use_embedding: Whether to use embedding layer or one-hot encoding
         rank: Rank of cp factorization
+        tokenizer: Character tokenizer
+        batch_first: Whether to use batch first or not
+        dropout: Dropout rate
+
     """
-    def __init__(self, input_size, hidden_size, vocab_size, use_embedding: bool = False, num_layers: int = 2,
-                 rank=8, tokenizer=None, batch_first=True, dropout: float = 0.5, **kwargs):
+    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False, rank: int = 8,
+                 tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5, **kwargs):
         super().__init__()
 
         self.dropout = dropout
@@ -82,8 +90,7 @@ class CPRNN(nn.Module):
             else:
                 return output_ids, init_states
 
-    def forward(self, inp: torch.LongTensor,
-                init_states: torch.Tensor = None):
+    def forward(self, inp: torch.LongTensor, init_states: torch.Tensor = None):
 
         if self.batch_first:
             inp = inp.transpose(0, 1)
@@ -102,7 +109,6 @@ class CPRNN(nn.Module):
 
         else:
             h_t = init_states
-            device = next(self.parameters()).device
             h_t = h_t.to(device)
 
         for t in range(sequence_length):
