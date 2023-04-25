@@ -1,18 +1,19 @@
 train:
-  epochs: 50
-  lr: 0.001
+  epochs: 25
+  lr: 0.0001
   batch_size: 1024
-  seq_len: 100
-  grad_clip: 5
+  seq_len: 50
+  grad_clip: inf
 model:
-  name: '2rnn' # lstmpt, cprnn, 2rnn
-  input_size: 128
-  hidden_size: 128
-  rank: 32
-  batch_first: True
-  dropout: 0.5
+  name: 'mirnn' # lstmpt, cprnn, 2rnn
+  input_size: 200
+  hidden_size: 2048
+  rank: 64
+  dropout: 0
 data:
   path: 'data/processed/ptb' # Path to the data
+eval:
+  path: "runs/ptb/mirnn_e100_l001_b1024_s100_r64"
 
 
 # Options for data paths:

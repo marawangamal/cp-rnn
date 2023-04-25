@@ -52,7 +52,6 @@ class CPRNN(nn.Module):
         self.a = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.rank))
         self.b = nn.Parameter(torch.Tensor(self.input_size + 1, self.rank))
         self.c = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
-        self.bias = nn.Parameter(torch.Tensor(self.hidden_size))
         self.init_weights()
 
     def init_weights(self):
@@ -120,7 +119,7 @@ class CPRNN(nn.Module):
             # [B, D_i'][D_i', R] => [B, R]
             b_prime = torch.cat((x_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.b
             h_tnew = torch.sigmoid(
-                torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c) + self.bias
+                torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c)
             )
             hidden_seq.append(h_tnew.unsqueeze(0))
             h_t = h_tnew

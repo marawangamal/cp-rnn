@@ -9,12 +9,14 @@ import torch
 import sklearn.decomposition
 from sklearn.preprocessing import StandardScaler
 
+from transformers import BertTokenizer, BertModel, BertForNextSentencePrediction
 
-def simulated_annealing(initial_state):
+
+def simulated_annealing(initial_state, outfile='bert_simaneal_expvar.png'):
     """Peforms simulated annealing to find a solution"""
     initial_temp = 90
     final_temp = .1
-    alpha = .01
+    alpha = .1
 
     current_temp = initial_temp
 
@@ -62,7 +64,7 @@ def simulated_annealing(initial_state):
     plt.xlabel('Principal component index')
     plt.legend(loc='best')
     plt.tight_layout()
-    plt.savefig('expvar.png')
+    plt.savefig(outfile)
 
     return solution
 
@@ -70,24 +72,18 @@ def simulated_annealing(initial_state):
 def get_cost(X_train):
     """Calculates cost of the argument state for your solution."""
 
-    # Scale the dataset; This is very important before you apply PCA
-    sc = StandardScaler()
-    sc.fit(X_train)
-    X_train_std = sc.transform(X_train)
-    # Instantiate PCA
-    pca = sklearn.decomposition.PCA()
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
 
-    # Determine transformed features
-    X_train_pca = pca.fit_transform(X_train_std)
+    X_train = torch.from_numpy(X_train).to(device)
 
-    # Determine explained variance using explained_variance_ration_ attribute
-    exp_var_pca = pca.explained_variance_ratio_
+    u, s, vt = torch.svd(X_train, some=True)
 
-    # Cumulative sum of eigenvalues; This will be used to create step plot
-    # for visualizing the variance explained by each principal component.
-
-    cum_sum_eigenvalues = np.cumsum(exp_var_pca)
-    return sum(cum_sum_eigenvalues[:5]), cum_sum_eigenvalues
+    vals = s.cpu().numpy()
+    cost = sum(vals[len(vals)//6:])
+    return cost, vals
 
 
 def get_neighbor(X_train):
@@ -97,7 +93,8 @@ def get_neighbor(X_train):
     X_train = X_train.reshape(m, n)
     return X_train
 
-def explained_variance(X_train, iters=16):
+
+def explained_variance(X_train, iters=16, outfile='expvar.png'):
     fmts = ['-o', '-x', '-.', '--x', '--o', '-']
     for i in range(iters):
         print("iter: {}".format(i))
@@ -105,40 +102,40 @@ def explained_variance(X_train, iters=16):
         X_train = np.random.permutation(X_train.reshape(-1))
         X_train = X_train.reshape(m, n)
 
-        # Scale the dataset; This is very important before you apply PCA
-        sc = StandardScaler()
-        sc.fit(X_train)
-        X_train_std = sc.transform(X_train)
-        # Instantiate PCA
-        pca = sklearn.decomposition.PCA()
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
 
-        # Determine transformed features
-        X_train_pca = pca.fit_transform(X_train_std)
+        X_train = torch.from_numpy(X_train).to(device)
 
-        # Determine explained variance using explained_variance_ration_ attribute
-        exp_var_pca = pca.explained_variance_ratio_
+        u, s, vt = torch.svd(X_train, some=True)
 
-        # Cumulative sum of eigenvalues; This will be used to create step plot
-        # for visualizing the variance explained by each principal component.
+        vals = s.cpu().numpy()
+        cost = sum(vals[len(vals)//2:])
 
-        cum_sum_eigenvalues = np.cumsum(exp_var_pca)
-        print(cum_sum_eigenvalues)
+        print("Cost: {} | {}".format(cost,  vals))
+        plt.plot(vals, fmts[i % len(fmts)])
 
-        # Create the visualization plot
-
-        # plt.bar(range(0, len(exp_var_pca)), exp_var_pca, alpha=0.5, align='center', label='Individual explained variance')
-        # plt.step(range(0, len(cum_sum_eigenvalues)), cum_sum_eigenvalues, where='mid',
-        #          label='Cumulative explained variance')
-
-        plt.plot(cum_sum_eigenvalues, fmts[i % len(fmts)])
-    plt.ylabel('Explained variance ratio')
+    plt.ylabel('Sigmas')
     plt.xlabel('Principal component index')
     plt.legend(loc='best')
     plt.tight_layout()
-    plt.savefig('expvar.png')
+    plt.savefig(outfile)
 
 
-def main():
+def findoptreshape(vecs):
+    n = len(vecs)
+    fac_a, fac_b = 1, n
+    print("finding factors")
+    for i in range(1, int(math.sqrt(n)) + 1):
+        if n % i == 0:
+            print(i, n // i)
+            fac_a, fac_b = i, n // i
+    return fac_a, fac_b
+
+
+def getresenet50mat():
     resnet50 = torch.hub.load('pytorch/vision:v0.6.0', 'resnet50', pretrained=True)
 
     vecs = []
@@ -149,22 +146,44 @@ def main():
             vecs.append(param.reshape(-1, 9))
 
     vecs = torch.cat(vecs, dim=0).reshape(-1)
-    n = len(vecs)
-
-    # find factors
-    fac_a, fac_b = 1, n
-    print("finding factors")
-    for i in range(1, int(math.sqrt(n)) + 1):
-        if n % i == 0:
-            print(i, n // i)
-            fac_a, fac_b = i, n // i
-
-    vecs = vecs.reshape(fac_a, fac_b)
-    print("vecs shape: {}".format(vecs.shape))
-
+    facs_a, facs_b = findoptreshape(vecs)
+    vecs = vecs.reshape(facs_a, facs_b)
     vecs = vecs.detach().numpy()
-    simulated_annealing(vecs)
-    # explained_variance(vecs)
+
+    return vecs
+
+
+def getbertmat():
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    import pdb; pdb.set_trace()
+    # model = BertModel.from_pretrained("bert-base-uncased")
+    model = BertForNextSentencePrediction.from_pretrained("bert-base-uncased")
+
+    text = "Replace me by any text you'd like."
+    encoded_input = tokenizer(text, return_tensors='pt')
+    output = model(**encoded_input)
+
+    vecs = list()
+
+    for name, param in model.named_parameters():
+        print(name, param.shape)
+        if "encoder" in name and list(param.shape) == [768, 768]:
+            vecs.append(param)
+
+    vecs = torch.cat(vecs, dim=0).reshape(-1)
+    facs_a, facs_b = findoptreshape(vecs)
+    vecs = vecs.reshape(facs_a, facs_b)
+    vecs = vecs.detach().numpy()
+    import pdb; pdb.set_trace()
+    return vecs
+
+def main():
+
+    # vecs = getresenet50mat()
+    vecs = getbertmat()
+
+    simulated_annealing(vecs, outfile='bert_simaneal_expvar.png')
+    # explained_variance(vecs, iters=16, outfile='bert_expvar.png')
 
 
 if __name__ == '__main__':

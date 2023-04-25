@@ -1,0 +1,1 @@
+sbatch --gres=gpu:4 -c 4 --mem=10G -t 12:00:00 --partition=short-unkillable train.py

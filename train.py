@@ -1,3 +1,4 @@
+import math
 import os
 import time
 import yaml
@@ -10,7 +11,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from cprnn.utils import load_object, AverageMeter
-from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT
+from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT, MRNN, MIRNN
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
 
@@ -21,21 +22,37 @@ _output_paths = {
 _models = {
     "cprnn": CPRNN,
     "2rnn": SecondOrderRNN,
-    "lstmpt": LSTMPT
+    "lstmpt": LSTMPT,
+    "mrnn": MRNN,
+    "mirnn": MIRNN
 }
+
+
+def get_experiment_name(configs, abbrevs=dict()):
+
+    for key, value in configs.items():
+        if isinstance(value, dict):
+            get_experiment_name(value, abbrevs)
+        else:
+            i = 1
+            while i < len(key):
+                if key[:i] not in abbrevs:
+                    abbrevs[key[:i]] = value
+                    break
+                i += 1
+
+    return abbrevs
 
 
 def main():
     stream = open("configs.yaml", 'r')
     args = yaml.safe_load(stream)
+
     for key, value in args.items():
         print(key + " : " + str(value))
 
-    # Output location
-    folder_name = "{}_e{}_l{}_b{}_s{}_r{}".format(
-        args["model"]["name"], args["train"]["epochs"], str(args["train"]["lr"]).split('.')[-1],
-        args["train"]["batch_size"], args["train"]["seq_len"], args["model"]["rank"]
-    )
+    exp_name = get_experiment_name({**args["train"], **args['model']})
+    folder_name = "_".join(["{}{}".format(k, v) for k, v in exp_name.items()])
 
     output_path = osp.join("runs", osp.split(args["data"]["path"])[-1], folder_name)
     if not osp.exists(output_path):
@@ -65,13 +82,13 @@ def main():
     # Data
     train_dataloader = PTBDataloader(
         osp.join(args["data"]["path"], 'train.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"], batch_first=args["model"]["batch_first"]
+        seq_len=args["train"]["seq_len"]
     )
     valid_dataloader = PTBDataloader(
         osp.join(args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"], batch_first=args["model"]["batch_first"]
+        seq_len=args["train"]["seq_len"]
     )
-    tokenizer = CharacterTokenizer(tokens=load_object('data/processed/ptb/tokenizer.pkl'))
+    tokenizer = CharacterTokenizer(tokens=load_object(osp.join(args['data']['path'], 'tokenizer.pkl')))
 
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
     logging.info("Device: {}".format(device))
@@ -98,10 +115,11 @@ def main():
         )
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
 
-        logging.info('Epoch {:4d}/{:4d} | time: {:5.2f}s | train loss {:5.2f} | '
-                     'train ppl {:8.2f} | valid loss {:5.2f} | valid ppl {:8.2f}'.format(
-            i_epoch, args["train"]["epochs"], (time.time() - epoch_start_time), train_metrics['loss'],
-            train_metrics['ppl'], valid_metrics['loss'], valid_metrics['ppl']
+        logging.info('Epoch {:4d}/{:4d} | time: {:5.2f}s | train loss {:5.2f} | train ppl {:8.2f} | train bpc {:8.2f} | '
+                     'valid loss {:5.2f} | valid ppl {:8.2f} | valid bpc {:8.2f}'.format(
+            i_epoch, args["train"]["epochs"], (time.time() - epoch_start_time),
+            train_metrics['loss'], train_metrics['ppl'], train_metrics['bpc'],
+            valid_metrics['loss'], valid_metrics['ppl'], valid_metrics['bpc']
         ))
 
         # Get the gradients and log the histogram
@@ -132,13 +150,12 @@ def main():
             model, valid_dataloader, tokenizer, device,
         )
 
-        if args["model"]["batch_first"]:
-            valid_sent_output = valid_sent_output.transpose(1, 0)
-            valid_sent_target = valid_sent_target.transpose(1, 0)
-            valid_sent_source = valid_sent_source.transpose(1, 0)
-            train_sent_output = train_sent_output.transpose(1, 0)
-            train_sent_target = train_sent_target.transpose(1, 0)
-            train_sent_source = train_sent_source.transpose(1, 0)
+        valid_sent_output = valid_sent_output.transpose(1, 0)
+        valid_sent_target = valid_sent_target.transpose(1, 0)
+        valid_sent_source = valid_sent_source.transpose(1, 0)
+        train_sent_output = train_sent_output.transpose(1, 0)
+        train_sent_target = train_sent_target.transpose(1, 0)
+        train_sent_source = train_sent_source.transpose(1, 0)
 
         valid_qaul_str = "Source:  \n{}  \nTarget:  \n{}  \nPrediction:  \n{}".format(
             "".join(valid_sent_source[:, 0]), "".join(valid_sent_target[:, 0]), "".join(valid_sent_output[:, 0])
@@ -220,7 +237,8 @@ def evaluate(model, eval_dataloader, criterion, device):
             ppl_average_meter.add(torch.exp(loss).item())
 
     return {"loss": loss_average_meter.value,
-            "ppl": ppl_average_meter.value}
+            "ppl": ppl_average_meter.value,
+            "bpc": loss_average_meter.value / math.log(2)}
 
 
 def train(model, train_dataloader, optimizer, criterion, clip=5, device=torch.device('cpu')):
@@ -242,7 +260,8 @@ def train(model, train_dataloader, optimizer, criterion, clip=5, device=torch.de
         loss.backward()
 
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
-        nn.utils.clip_grad_norm_(model.parameters(), clip)
+        if clip != 'inf':
+            nn.utils.clip_grad_norm_(model.parameters(), clip)
 
         optimizer.step()
 
@@ -250,7 +269,8 @@ def train(model, train_dataloader, optimizer, criterion, clip=5, device=torch.de
         ppl_average_meter.add(torch.exp(loss).item())
 
     return {"loss": loss_average_meter.value,
-            "ppl": ppl_average_meter.value}
+            "ppl": ppl_average_meter.value,
+            "bpc": loss_average_meter.value / math.log(2)}
 
 
 if __name__ == '__main__':

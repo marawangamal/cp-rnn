@@ -8,11 +8,8 @@ import torch.nn as nn
 from cprnn.features.tokenizer import CharacterTokenizer
 
 
-class MRNN(nn.Module):
-    """Multiplicative RNNN. https://icml.cc/2011/papers/524_icmlpaper.pdf
-
-    .. math::
-        h^{(t+1)} = \\tanh(\\alpha + \\beta x^{(t)} + CP([A,B,C]) x_1 h^{(t)} x_2 x^{(t)}
+class MIRNN(nn.Module):
+    """Multiplicative Integration RNNN. https://icml.cc/2011/papers/524_icmlpaper.pdf
 
     Args:
         input_size: Dimension of input features.
@@ -51,17 +48,24 @@ class MRNN(nn.Module):
             nn.Linear(self.hidden_size, self.vocab_size)
         )
 
-        # Encoder using CP factors
+        # Encoder using MI-RNN factors
         self.a = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
         self.b = nn.Parameter(torch.Tensor(self.input_size, self.rank))
         self.c = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
         self.beta = nn.Parameter(torch.Tensor(self.input_size, self.hidden_size))
+
         self.alpha = nn.Parameter(torch.Tensor(self.hidden_size))
+        self.w = nn.Parameter(torch.Tensor(self.input_size, self.hidden_size))
+        self.u = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))
+        self.beta1 = nn.Parameter(torch.Tensor(self.hidden_size))
+        self.beta2 = nn.Parameter(torch.Tensor(self.hidden_size))
+        self.b = nn.Parameter(torch.Tensor(self.hidden_size))
 
         self.init_weights()
 
     def init_weights(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
+        # stdv = 1.0 / math.sqrt(self.hidden_size)
+        stdv = 0.02  # to match paper
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv)
 
@@ -119,16 +123,9 @@ class MRNN(nn.Module):
         for t in range(sequence_length):
             x_t = x[t, :, :]
 
-            # [B, D_h][D_h, R] => [B, R]
-            a_prime = h_t @ self.a
-
-            # [B, D_i'][D_i', R] => [B, R]
-            b_prime = x_t @ self.b
-            h_tnew = torch.sigmoid(
-                torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c) + x_t @ self.beta + self.alpha
-            )
-            hidden_seq.append(h_tnew.unsqueeze(0))
-            h_t = h_tnew
+            # Compute MI-RNN factors
+            h_t = self.alpha * (x_t @  self.w) + self.beta1 * (h_t @ self.u) + self.beta2 * (x_t @ self.w) + self.b
+            hidden_seq.append(h_t.unsqueeze(0))
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
         output = self.decoder(hidden_seq.contiguous())
