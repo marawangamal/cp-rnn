@@ -6,6 +6,9 @@ import yaml
 import logging
 import os.path as osp
 
+import hydra
+from omegaconf import DictConfig, OmegaConf
+
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -44,10 +47,10 @@ def get_experiment_name(configs, abbrevs=dict()):
     return abbrevs
 
 
-def main():
-    stream = open("configs.yaml", 'r')
-    args = yaml.safe_load(stream)
+@hydra.main(version_base=None, config_path="./", config_name="configs")
+def main(cfg: DictConfig):
 
+    args = OmegaConf.to_container(cfg, resolve=True)
     for key, value in args.items():
         print(key + " : " + str(value))
 
