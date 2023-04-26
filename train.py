@@ -9,6 +9,9 @@ import os.path as osp
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from vizier.service import clients
+from vizier.service import pyvizier as vz
+
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -29,6 +32,33 @@ _models = {
     "mrnn": MRNN,
     "mirnn": MIRNN
 }
+
+
+def hpopt(hps, hp_ranges, hp_types, evaluate_fn, evaluate_kwargs, iters=10, metric_name="bpc"):
+    # Algorithm, search space, and metrics.
+    study_config = vz.StudyConfig(algorithm='GAUSSIAN_PROCESS_BANDIT')
+
+    add_param = {
+        "int": study_config.search_space.root.add_int_param,
+        "float": study_config.search_space.root.add_float_param,
+        "discrete": study_config.search_space.root.add_discrete_param
+    }
+
+    for hp, hp_range, hp_type in zip(hps, hp_ranges, hp_types):
+        study_config.search_space.root.add_float_param('w', 0.0, 5.0)
+        add_param[hp_type](hp, *hp_range)
+
+    study_config.metric_information.append(vz.MetricInformation('metric_name', goal=vz.ObjectiveMetricGoal.MINIMIZE))
+
+    # Setup client and begin optimization. Vizier Service will be implicitly created.
+    study = clients.Study.from_study_config(study_config, owner='my_name', study_id='example')
+    for i in range(iters):
+        suggestions = study.suggest(count=1)
+        for suggestion in suggestions:
+            params = suggestion.parameters
+            # objective = evaluate_fn(params['w'], params['x'], params['y'], params['z'], **evaluate_kwargs)
+            objective = evaluate_fn(**params, **evaluate_kwargs)
+            suggestion.complete(vz.Measurement({metric_name: objective}))
 
 
 def get_experiment_name(configs, abbrevs=dict()):
@@ -60,10 +90,14 @@ def main(cfg: DictConfig):
     output_path = osp.join("runs", osp.split(args["data"]["path"])[-1], folder_name)
     if not osp.exists(output_path):
         os.makedirs(output_path)
+        print("Running Experiment: `{}`".format(folder_name))
     else:
-        raise ValueError("Experiment `{}` already exists.".format(
-            folder_name
-        ))
+        try:
+            dct = torch.load(osp.join(output_path, 'model_best.pth'), map_location=torch.device('cpu'))
+            print("Experiment `{}` already exists. Best Epoch {}".format(folder_name, dct['epoch']))
+        except:
+            print("Experiment `{}` already exists. But has not `model_best.pth`".format(folder_name))
+        exit()
 
     with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
         yaml.dump(args, outfile)
@@ -71,16 +105,23 @@ def main(cfg: DictConfig):
     writer = SummaryWriter(log_dir=output_path)
 
     # Logging configuration
-    logging.basicConfig(
-        level=logging.INFO,
-        # format="%(asctime)s [%(levelname)s] %(message)s",
-        format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-        datefmt='%H:%M:%S',
-        handlers=[
-            logging.FileHandler(osp.join(output_path, "logging.txt")),
-            logging.StreamHandler()
-        ]
-    )
+    if args['train']['verbose']:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+            datefmt='%H:%M:%S',
+            handlers=[
+                logging.FileHandler(osp.join(output_path, "logging.txt")),
+                logging.StreamHandler()
+            ]
+        )
+
+    else:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+            datefmt='%H:%M:%S',
+        )
 
     # Data
     train_dataloader = PTBDataloader(
@@ -89,6 +130,10 @@ def main(cfg: DictConfig):
     )
     valid_dataloader = PTBDataloader(
         osp.join(args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
+        seq_len=args["train"]["seq_len"]
+    )
+    test_dataloader = PTBDataloader(
+        osp.join(args["data"]["path"], 'test.pth'), batch_size=args["train"]["batch_size"],
         seq_len=args["train"]["seq_len"]
     )
     tokenizer = CharacterTokenizer(tokens=load_object(osp.join(args['data']['path'], 'tokenizer.pkl')))
@@ -106,24 +151,33 @@ def main(cfg: DictConfig):
 
     # Parallelize the model
     if torch.cuda.device_count() > 1:
-        logging.info("Using {} GPUs".format(torch.cuda.device_count()))
+        print("Using {} GPUs".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
 
     # Training
+    train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
+          output_path, tokenizer, writer)
+
+    print("Experiment: `{}` Succeeded".format(folder_name))
+
+
+def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
+          output_path, tokenizer, writer):
     best_valid_loss = None
     for i_epoch in range(1, args["train"]["epochs"] + 1):
         epoch_start_time = time.time()
-        train_metrics = train(
+        train_metrics = train_epoch(
             model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device
         )
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
 
-        logging.info('Epoch {:4d}/{:4d} | time: {:5.2f}s | train loss {:5.2f} | train ppl {:8.2f} | train bpc {:8.2f} | '
-                     'valid loss {:5.2f} | valid ppl {:8.2f} | valid bpc {:8.2f}'.format(
-            i_epoch, args["train"]["epochs"], (time.time() - epoch_start_time),
-            train_metrics['loss'], train_metrics['ppl'], train_metrics['bpc'],
-            valid_metrics['loss'], valid_metrics['ppl'], valid_metrics['bpc']
-        ))
+        logging.info(
+            'Epoch {:4d}/{:4d} | time: {:5.2f}s | train loss {:5.2f} | train ppl {:8.2f} | train bpc {:8.2f} | '
+            'valid loss {:5.2f} | valid ppl {:8.2f} | valid bpc {:8.2f}'.format(
+                i_epoch, args["train"]["epochs"], (time.time() - epoch_start_time),
+                train_metrics['loss'], train_metrics['ppl'], train_metrics['bpc'],
+                valid_metrics['loss'], valid_metrics['ppl'], valid_metrics['bpc']
+            ))
 
         # Get the gradients and log the histogram
         for name, param in model.named_parameters():
@@ -132,6 +186,9 @@ def main(cfg: DictConfig):
 
         # Save the model if the validation loss is the best we've seen so far.
         if not best_valid_loss or valid_metrics['loss'] < best_valid_loss:
+            # Compute here for convenience
+            test_metrics = evaluate(model, test_dataloader, criterion, device=device)
+
             torch.save({
                 'epoch': i_epoch,
                 'optimizer_state_dict': optimizer.state_dict(),
@@ -139,6 +196,7 @@ def main(cfg: DictConfig):
                 'torchrandom_state': torch.get_rng_state(),
                 'train_metrics': valid_metrics,
                 'valid_metrics': valid_metrics,
+                'test_metrics': test_metrics,
                 'num_params': num_params,
                 'config': args
             }, osp.join(output_path, "model_best.pth"))
@@ -187,6 +245,8 @@ def main(cfg: DictConfig):
 
     writer.flush()
     writer.close()
+
+    return valid_metrics
 
 
 def sample(model, tokenizer, device=torch.device('cpu'), size=100, prime='The', top_k=5):
@@ -244,7 +304,7 @@ def evaluate(model, eval_dataloader, criterion, device):
             "bpc": loss_average_meter.value / math.log(2)}
 
 
-def train(model, train_dataloader, optimizer, criterion, clip=5, device=torch.device('cpu')):
+def train_epoch(model, train_dataloader, optimizer, criterion, clip=5, device=torch.device('cpu')):
     model.train()
     loss_average_meter = AverageMeter()
     ppl_average_meter = AverageMeter()
