@@ -29,9 +29,25 @@ python train.py
 ```
 
 ## Visualize
+
+To visualize the training process run:
 ```train
 tensorboard --logdir=runs
 ```
+
+## Reproducing results
+To run all experiments in the figure below run:
+```commandline
+bash job.sh
+```
+
+Then visualize using:
+```commandline
+python cprnn/visualization/bpc_vs_params.py
+```
+
+![img.png](img.png)
+
 
 ## Sample Outputs
 

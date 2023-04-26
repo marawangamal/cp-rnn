@@ -1,5 +1,7 @@
 import pickle
 
+import yaml
+
 
 def save_object(obj, filename):
     with open(filename, 'wb') as out_file:  # Overwrites any existing file.
@@ -30,4 +32,9 @@ class AverageMeter:
         return self.sum / self.pts
 
 
-
+def get_yaml_dict(yaml_path="configs.yaml"):
+    with open(yaml_path, 'r') as stream:
+        try:
+            return yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)

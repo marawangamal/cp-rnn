@@ -1,7 +1,5 @@
 import math
-import os
 import time
-import yaml
 
 import logging
 import os.path as osp
@@ -9,7 +7,7 @@ import os.path as osp
 import torch
 import torch.nn as nn
 
-from cprnn.utils import load_object, AverageMeter
+from cprnn.utils import load_object, AverageMeter, get_yaml_dict
 from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT, MRNN, MIRNN
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
@@ -27,16 +25,7 @@ _models = {
 }
 
 
-def get_yaml_dict(yaml_path="configs.yaml"):
-    with open(yaml_path, 'r') as stream:
-        try:
-            return yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(exc)
-
-
 def load_weights(model, dct):
-    import pdb; pdb.set_trace()
     if all(['module' in k for k in dct['model_state_dict'].keys()]):
         state_dict = {k.replace('module.', ''): v for k, v in dct['model_state_dict'].items()}
     else:
@@ -45,11 +34,14 @@ def load_weights(model, dct):
 
 
 def main():
-    args = get_yaml_dict("configs.yaml")
-    for key, value in args.items():
-        print(key + " : " + str(value))
 
-    output_path = args["eval"]["path"]
+    # args for running eval
+    eval_args = get_yaml_dict("configs.yaml")
+    for key, value in eval_args.items():
+        print(key + " : " + str(value))
+    output_path = eval_args["eval"]["path"]
+
+    # args of previously run experiment
     args = get_yaml_dict(osp.join(output_path, 'configs.yaml'))
 
     # Logging configuration
@@ -65,16 +57,16 @@ def main():
 
     # Data
     valid_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"], batch_first=args["model"]["batch_first"]
+        osp.join(eval_args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
+        seq_len=args["train"]["seq_len"]
     )
 
     test_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'test.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"], batch_first=args["model"]["batch_first"]
+        osp.join(eval_args["data"]["path"], 'test.pth'), batch_size=args["train"]["batch_size"],
+        seq_len=args["train"]["seq_len"]
     )
 
-    tokenizer = CharacterTokenizer(tokens=load_object(osp.join(args['data']['path'], 'tokenizer.pkl')))
+    tokenizer = CharacterTokenizer(tokens=load_object(osp.join(eval_args['data']['path'], 'tokenizer.pkl')))
 
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
     logging.info("Device: {}".format(device))
@@ -109,6 +101,9 @@ def main():
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
         test_metrics = evaluate(model, test_dataloader, criterion, device=device)
 
+        dct['test_metrics'] = test_metrics
+        torch.save(dct, osp.join(output_path, "model_best.pth"))  # Update best model saved metrics
+
         # Qualitative prediction
         valid_sent_output, valid_sent_target, valid_sent_source = evaluate_qualitative(
             model, valid_dataloader, tokenizer, device,
@@ -124,13 +119,12 @@ def main():
             test_metrics['loss'], test_metrics['ppl'], test_metrics['loss'] / math.log(2)
         ))
 
-        if args["model"]["batch_first"]:
-            valid_sent_output = valid_sent_output.transpose(1, 0)
-            valid_sent_target = valid_sent_target.transpose(1, 0)
-            valid_sent_source = valid_sent_source.transpose(1, 0)
-            test_sent_output = test_sent_output.transpose(1, 0)
-            test_sent_target = test_sent_target.transpose(1, 0)
-            test_sent_source = test_sent_source.transpose(1, 0)
+        valid_sent_output = valid_sent_output.transpose(1, 0)
+        valid_sent_target = valid_sent_target.transpose(1, 0)
+        valid_sent_source = valid_sent_source.transpose(1, 0)
+        test_sent_output = test_sent_output.transpose(1, 0)
+        test_sent_target = test_sent_target.transpose(1, 0)
+        test_sent_source = test_sent_source.transpose(1, 0)
 
         valid_qaul_str = "Source:  \n{}  \nTarget:  \n{}  \nPrediction:  \n{}".format(
             "".join(valid_sent_source[:, 0]), "".join(valid_sent_target[:, 0]), "".join(valid_sent_output[:, 0])
@@ -199,7 +193,8 @@ def evaluate(model, eval_dataloader, criterion, device):
             ppl_average_meter.add(torch.exp(loss).item())
 
     return {"loss": loss_average_meter.value,
-            "ppl": ppl_average_meter.value}
+            "ppl": ppl_average_meter.value,
+            "bpc": loss_average_meter.value / math.log(2)}
 
 
 
