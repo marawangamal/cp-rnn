@@ -61,7 +61,10 @@ def hpopt(hps, hp_ranges, hp_types, evaluate_fn, evaluate_kwargs, iters=10, metr
             suggestion.complete(vz.Measurement({metric_name: objective}))
 
 
-def get_experiment_name(configs, abbrevs=dict()):
+def get_experiment_name(configs, abbrevs=None):
+
+    if abbrevs is None:
+        abbrevs = {}
 
     for key, value in configs.items():
         if isinstance(value, dict):
@@ -81,84 +84,88 @@ def get_experiment_name(configs, abbrevs=dict()):
 def main(cfg: DictConfig):
 
     args = OmegaConf.to_container(cfg, resolve=True)
-    for key, value in args.items():
-        print(key + " : " + str(value))
 
-    exp_name = get_experiment_name({**args["train"], **args['model']})
-    folder_name = "_".join(["{}{}".format(k, v) for k, v in exp_name.items()])
+    if (args['data']['tokenizer'] == 'word') ^ (args['model']['input_size'] != 0):
+        raise ValueError("Embedding dimension and word tokenizer must be set jointly")
 
-    output_path = osp.join("runs", osp.split(args["data"]["path"])[-1], folder_name)
-    if not osp.exists(output_path):
-        os.makedirs(output_path)
-        print("Running Experiment: `{}`".format(folder_name))
-    else:
-        try:
-            dct = torch.load(osp.join(output_path, 'model_best.pth'), map_location=torch.device('cpu'))
-            print("Experiment `{}` already exists. Best Epoch {}".format(folder_name, dct['epoch']))
-        except:
-            print("Experiment `{}` already exists. But has not `model_best.pth`".format(folder_name))
-        exit()
+    for t in range(args["runs"]):
+        exp_name = get_experiment_name(
+            {**args["train"], **args['model'], **{"tokenizer": args['data']['tokenizer'], "trial": t}}
+        )
+        folder_name = "_".join(["{}{}".format(k, v) for k, v in exp_name.items()])
 
-    with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
-        yaml.dump(args, outfile)
+        output_path = osp.join(args['data']['output'], osp.split(args["data"]["path"])[-1], folder_name)
+        if not osp.exists(output_path):
+            os.makedirs(output_path)
+            print("Running Experiment: `{}`".format(folder_name))
 
-    writer = SummaryWriter(log_dir=output_path)
+        elif not osp.exists(osp.join(output_path, 'model_best.pth')):
+            print("Running Experiment: `{}`".format(folder_name))
 
-    # Logging configuration
-    if args['train']['verbose']:
+        else:  # Experiment already exists
+            dct = torch.load(osp.join(output_path, 'model_best.pth'))
+
+            try:
+                dct_latest = torch.load(osp.join(output_path, 'model_latest.pth'))
+                print("Experiment `{}` already exists. (Best model @ epoch {} | Latest @ epoch {})".format(
+                    folder_name, dct['epoch'], dct_latest['epoch']
+                ))
+
+            except:
+                print("Experiment `{}` already exists. (Best model @ epoch {})".format(folder_name, dct['epoch']))
+            continue
+
+        with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
+            yaml.dump(args, outfile)
+
+        writer = SummaryWriter(log_dir=output_path)
+
+        # Logging configuration
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
             datefmt='%H:%M:%S',
-            handlers=[
-                logging.FileHandler(osp.join(output_path, "logging.txt")),
-                logging.StreamHandler()
-            ]
+        )
+        logging.getLogger().addHandler(logging.FileHandler(osp.join(output_path, "logging.txt")))
+
+        # Data
+        train_dataloader = PTBDataloader(
+            osp.join(args["data"]["path"], 'train-{}.pth'.format(args['data']['tokenizer'])), batch_size=args["train"]["batch_size"],
+            seq_len=args["train"]["seq_len"]
+        )
+        valid_dataloader = PTBDataloader(
+            osp.join(args["data"]["path"], 'valid-{}.pth'.format(
+                args['data']['tokenizer'])), batch_size=args["train"]["batch_size"], seq_len=args["train"]["seq_len"]
+        )
+        test_dataloader = PTBDataloader(
+            osp.join(args["data"]["path"], 'test-{}.pth'.format(
+                args['data']['tokenizer'])), batch_size=args["train"]["batch_size"], seq_len=args["train"]["seq_len"]
+        )
+        tokenizer = CharacterTokenizer(
+            tokens=load_object(osp.join(args['data']['path'], 'tokenizer-{}.pkl'.format(args['data']['tokenizer'])))
         )
 
-    else:
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-            datefmt='%H:%M:%S',
-        )
+        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+        logging.info("Device: {}".format(device))
 
-    # Data
-    train_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'train.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"]
-    )
-    valid_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"]
-    )
-    test_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'test.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"]
-    )
-    tokenizer = CharacterTokenizer(tokens=load_object(osp.join(args['data']['path'], 'tokenizer.pkl')))
+        # Model
+        model = _models[args["model"]["name"].lower()](vocab_size=tokenizer.vocab_size, **args["model"])
+        num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-    logging.info("Device: {}".format(device))
+        model.to(device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
 
-    # Model
-    model = _models[args["model"]["name"].lower()](vocab_size=tokenizer.vocab_size, **args["model"])
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # Parallelize the model
+        if torch.cuda.device_count() > 1:
+            print("Using {} GPUs".format(torch.cuda.device_count()))
+            model = nn.DataParallel(model)
 
-    model.to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
+        # Training
+        train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
+              output_path, tokenizer, writer)
 
-    # Parallelize the model
-    if torch.cuda.device_count() > 1:
-        print("Using {} GPUs".format(torch.cuda.device_count()))
-        model = nn.DataParallel(model)
-
-    # Training
-    train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
-          output_path, tokenizer, writer)
-
-    print("Experiment: `{}` Succeeded".format(folder_name))
+        print("Experiment: `{}` Succeeded".format(folder_name))
 
 
 def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,

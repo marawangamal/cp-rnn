@@ -1,19 +1,23 @@
+runs: 3
 train:
   epochs: 25
   lr: 0.0001
-  batch_size: 1024
+  batch_size: 128
   seq_len: 50
   grad_clip: inf
   hpopt: False
   verbose: False
 model:
-  name: 'mirnn' # lstmpt, cprnn, 2rnn
-  input_size: 200
+  name: mirnn # lstmpt, cprnn, 2rnn
+  input_size: 0
   hidden_size: 2048
   rank: 64
   dropout: 0
+  gate: tanh # tanh, sigmoid, identity
 data:
-  path: 'data/processed/ptb' # Path to the data
+  path: data/processed/ptb # Path to the data
+  tokenizer: char # char, word
+  output: runs
 eval:
   path: 'runs/ptb/e25_l0.0001_b1024_s50_ginf_ncprnn_i200_h2048_r64_d0'
 
