@@ -1,0 +1,7 @@
+# 2. Generating BPC vs. Number of Parameters plot
+visualization:
+  experiments: /home/mila/m/marawan.gamal/projects/cp-rnn/runs/ptb
+  output: /home/mila/m/marawan.gamal/projects/cp-rnn/figures/activations
+  group_by: ["model.name"]
+data:
+  path: data/processed/ptb # Path to the data

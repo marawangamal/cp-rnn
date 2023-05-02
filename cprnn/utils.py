@@ -20,12 +20,18 @@ def saveckpt(model, epoch, optimizer):
 
 class AverageMeter:
     def __init__(self):
-        self.sum = 0
-        self.pts = 0
+        self.sum = None
+        self.pts = None
+        self.first = True
 
-    def add(self, val):
-        self.sum += val
-        self.pts += 1
+    def add(self, val, n=1):
+        if self.first:
+            self.sum = val
+            self.pts = n
+            self.first = False
+        else:
+            self.sum += val
+            self.pts += n
 
     @property
     def value(self):
@@ -38,3 +44,11 @@ def get_yaml_dict(yaml_path="configs.yaml"):
             return yaml.safe_load(stream)
         except yaml.YAMLError as exc:
             print(exc)
+
+
+def load_weights(model, dct):
+    if all(['module' in k for k in dct['model_state_dict'].keys()]):
+        state_dict = {k.replace('module.', ''): v for k, v in dct['model_state_dict'].items()}
+    else:
+        state_dict = dct['model_state_dict']
+    model.load_state_dict(state_dict)

@@ -46,7 +46,7 @@ Then visualize using:
 python cprnn/visualization/bpc_vs_params.py
 ```
 
-![img.png](img.png)
+![img.png](figures/img.png)
 
 
 ## Sample Outputs

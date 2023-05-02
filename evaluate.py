@@ -7,8 +7,8 @@ import os.path as osp
 import torch
 import torch.nn as nn
 
-from cprnn.utils import load_object, AverageMeter, get_yaml_dict
-from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT, MRNN, MIRNN
+from cprnn.utils import load_object, AverageMeter, get_yaml_dict, load_weights
+from cprnn.models import CPRNN, SecondOrderRNN, LSTM, MRNN, MIRNN
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
 
@@ -19,18 +19,10 @@ _output_paths = {
 _models = {
     "cprnn": CPRNN,
     "2rnn": SecondOrderRNN,
-    "lstmpt": LSTMPT,
+    "lstmpt": LSTM,
     "mrnn": MRNN,
     "mirnn": MIRNN
 }
-
-
-def load_weights(model, dct):
-    if all(['module' in k for k in dct['model_state_dict'].keys()]):
-        state_dict = {k.replace('module.', ''): v for k, v in dct['model_state_dict'].items()}
-    else:
-        state_dict = dct['model_state_dict']
-    model.load_state_dict(state_dict)
 
 
 def main():
@@ -168,7 +160,7 @@ def evaluate_qualitative(model, eval_dataloader, tokenizer: CharacterTokenizer, 
     with torch.no_grad():
         source, target = next(iter(eval_dataloader))
         source, target = source.to(device), target.to(device)
-        output, _ = model(source)  # [bsz, seq, d_vocab]
+        output, _, _ = model(source)  # [bsz, seq, d_vocab]
         output = torch.argmax(torch.softmax(output, dim=-1), dim=-1)
         sentences_output = tokenizer.ix_to_char(output.cpu().detach().numpy())
         sentences_target = tokenizer.ix_to_char(target.cpu().detach().numpy())
@@ -184,17 +176,24 @@ def evaluate(model, eval_dataloader, criterion, device):
         for inputs, targets in eval_dataloader:
             inputs, targets = inputs.to(device), targets.to(device)
 
-            output, _ = model(inputs)
+            output, _, hidden_seq = model(inputs)
             n_seqs_curr, n_steps_curr = output.shape[0], output.shape[1]
             loss = criterion(output.reshape(n_seqs_curr * n_steps_curr, -1),
                              targets.reshape(n_seqs_curr * n_steps_curr))
+
+            if edges is None:
+                hist, edges = torch.histogram(hidden_seq, bins=100)
+            else:
+                hist_new, edges = torch.histogram(hidden_seq, edges)
+                hist += hist_new
 
             loss_average_meter.add(loss.item())
             ppl_average_meter.add(torch.exp(loss).item())
 
     return {"loss": loss_average_meter.value,
             "ppl": ppl_average_meter.value,
-            "bpc": loss_average_meter.value / math.log(2)}
+            "bpc": loss_average_meter.value / math.log(2),
+            "hist": hist}
 
 
 

@@ -8,7 +8,19 @@ from omegaconf import DictConfig, OmegaConf
 
 import matplotlib.pyplot as plt
 
-from cprnn.utils import get_yaml_dict
+from cprnn.features.ptb_dataloader import PTBDataloader
+from cprnn.features.tokenizer import CharacterTokenizer
+from cprnn.utils import get_yaml_dict, AverageMeter
+from cprnn.models import CPRNN, SecondOrderRNN, LSTM, MRNN, MIRNN
+
+
+_models = {
+    "cprnn": CPRNN,
+    "2rnn": SecondOrderRNN,
+    "lstmpt": LSTM,
+    "mrnn": MRNN,
+    "mirnn": MIRNN
+}
 
 
 def satisfies_conditions(root_a, root_b, catchall='any'):
@@ -30,6 +42,57 @@ def get_leaf_value(root, addr_string):
     while len(keys) > 0:
         value = value[keys.pop(0)]
     return value
+
+
+def evaluate(model, eval_dataloader, criterion, device):
+    with torch.no_grad():
+        loss_average_meter = AverageMeter()
+        ppl_average_meter = AverageMeter()
+        for inputs, targets in eval_dataloader:
+            inputs, targets = inputs.to(device), targets.to(device)
+
+            output, _, hidden_seq = model(inputs)
+            n_seqs_curr, n_steps_curr = output.shape[0], output.shape[1]
+            loss = criterion(output.reshape(n_seqs_curr * n_steps_curr, -1),
+                             targets.reshape(n_seqs_curr * n_steps_curr))
+
+            if edges is None:
+                hist, edges = torch.histogram(hidden_seq, bins=100)
+            else:
+                hist_new, edges = torch.histogram(hidden_seq, edges)
+                hist += hist_new
+
+            loss_average_meter.add(loss.item())
+            ppl_average_meter.add(torch.exp(loss).item())
+
+    return {"loss": loss_average_meter.value,
+            "ppl": ppl_average_meter.value,
+            "bpc": loss_average_meter.value / math.log(2),
+            "hist": hist}
+
+
+def get_hists():
+
+    valid_dataloader = PTBDataloader(
+        osp.join(eval_args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
+        seq_len=args["train"]["seq_len"]
+    )
+
+    test_dataloader = PTBDataloader(
+        osp.join(eval_args["data"]["path"], 'test.pth'), batch_size=args["train"]["batch_size"],
+        seq_len=args["train"]["seq_len"]
+    )
+
+    tokenizer = CharacterTokenizer(tokens=load_object(osp.join(eval_args['data']['path'], 'tokenizer.pkl')))
+
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+
+    # Model
+    model = _models[args["model"]["name"].lower()](vocab_size=tokenizer.vocab_size, **args["model"])
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    dct = torch.load(osp.join(output_path, 'model_best.pth'), map_location=torch.device('cpu'))
+    load_weights(model, dct)
 
 
 @hydra.main(version_base=None, config_path="./", config_name="visualization_configs")

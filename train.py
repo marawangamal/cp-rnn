@@ -17,7 +17,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from cprnn.utils import load_object, AverageMeter
-from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT, MRNN, MIRNN
+from cprnn.models import CPRNN, SecondOrderRNN, LSTM, MRNN, MIRNN, RNN
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
 
@@ -28,9 +28,10 @@ _output_paths = {
 _models = {
     "cprnn": CPRNN,
     "2rnn": SecondOrderRNN,
-    "lstmpt": LSTMPT,
+    "lstm": LSTM,
     "mrnn": MRNN,
-    "mirnn": MIRNN
+    "mirnn": MIRNN,
+    "rnn": RNN
 }
 
 
@@ -61,7 +62,10 @@ def hpopt(hps, hp_ranges, hp_types, evaluate_fn, evaluate_kwargs, iters=10, metr
             suggestion.complete(vz.Measurement({metric_name: objective}))
 
 
-def get_experiment_name(configs, abbrevs=dict()):
+def get_experiment_name(configs, abbrevs=None):
+
+    if abbrevs is None:
+        abbrevs = {}
 
     for key, value in configs.items():
         if isinstance(value, dict):
@@ -81,84 +85,125 @@ def get_experiment_name(configs, abbrevs=dict()):
 def main(cfg: DictConfig):
 
     args = OmegaConf.to_container(cfg, resolve=True)
-    for key, value in args.items():
-        print(key + " : " + str(value))
 
-    exp_name = get_experiment_name({**args["train"], **args['model']})
-    folder_name = "_".join(["{}{}".format(k, v) for k, v in exp_name.items()])
+    # Value checking
+    if (args['data']['tokenizer'] == 'word') ^ (args['model']['input_size'] != 0):
+        raise ValueError("Embedding dimension and word tokenizer must be set jointly")
 
-    output_path = osp.join("runs", osp.split(args["data"]["path"])[-1], folder_name)
-    if not osp.exists(output_path):
-        os.makedirs(output_path)
-        print("Running Experiment: `{}`".format(folder_name))
-    else:
-        try:
-            dct = torch.load(osp.join(output_path, 'model_best.pth'), map_location=torch.device('cpu'))
-            print("Experiment `{}` already exists. Best Epoch {}".format(folder_name, dct['epoch']))
-        except:
-            print("Experiment `{}` already exists. But has not `model_best.pth`".format(folder_name))
-        exit()
+    for t in range(args["runs"]):
+        exp_name = get_experiment_name({**args["train"], **args['model'], **{"tokenizer": args['data']['tokenizer'], "trial": t}})
+        folder_name = "_".join(["{}{}".format(k, v) for k, v in exp_name.items()])
 
-    with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
-        yaml.dump(args, outfile)
+        output_path = osp.join(args['data']['output'], osp.split(args["data"]["path"])[-1], folder_name)
+        if not osp.exists(output_path):
+            os.makedirs(output_path)
+            print("Running Experiment: `{}`".format(folder_name))
 
-    writer = SummaryWriter(log_dir=output_path)
+        elif not osp.exists(osp.join(output_path, 'model_best.pth')):
+            print("Running Experiment: `{}`".format(folder_name))
 
-    # Logging configuration
-    if args['train']['verbose']:
+        else:  # Experiment already exists
+            dct = torch.load(osp.join(output_path, 'model_best.pth'))
+
+            try:
+                dct_latest = torch.load(osp.join(output_path, 'model_latest.pth'))
+                print("Experiment `{}` already exists. (Best model @ epoch {} | Latest @ epoch {})".format(
+                    folder_name, dct['epoch'], dct_latest['epoch']
+                ))
+
+            except:
+                print("Experiment `{}` already exists. (Best model @ epoch {})".format(folder_name, dct['epoch']))
+            continue
+
+        with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
+            yaml.dump(args, outfile)
+
+        layout = {
+            "dcdh": {
+                "dcdh": ["Multiline", ["grads/dcdh{}".format(i) for i in range(args["train"]["seq_len"])]],
+            },
+        }
+
+        writer = SummaryWriter(log_dir=output_path)
+        writer.add_custom_scalars(layout)
+
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
             datefmt='%H:%M:%S',
-            handlers=[
-                logging.FileHandler(osp.join(output_path, "logging.txt")),
-                logging.StreamHandler()
-            ]
+        )
+        logging.getLogger().addHandler(logging.FileHandler(osp.join(output_path, "logging.txt")))
+
+        # logging.basicConfig(
+        #     filename=osp.join(output_path, "logging.txt"),
+        #     level=logging.ERROR,
+        #     format='[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s',
+        #     datefmt='%H:%M:%S'
+        # )
+        #
+        # file_logger = logging.FileHandler("logging.txt")
+        # file_logger.setLevel(logging.INFO)
+        # file_formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+        # file_logger.setFormatter(file_formatter)
+        # logging.getLogger('').addHandler(file_logger)
+        # logger = logging.getLogger(__name__)
+
+        # set up logging to console
+        # console = logging.StreamHandler()
+        # console.setLevel(logging.DEBUG)
+        # set a format which is simpler for console use
+        # formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+        # console.setFormatter(formatter)
+        # add the handler to the root logger
+        # logging.getLogger('').addHandler(console)
+        # logger = logging.getLogger(__name__)
+
+        # Data
+        train_dataloader = PTBDataloader(
+            osp.join(args["data"]["path"], 'train-{}.pth'.format(args['data']['tokenizer'])), batch_size=args["train"]["batch_size"],
+            seq_len=args["train"]["seq_len"]
+        )
+        valid_dataloader = PTBDataloader(
+            osp.join(args["data"]["path"], 'valid-{}.pth'.format(
+                args['data']['tokenizer'])), batch_size=args["train"]["batch_size"], seq_len=args["train"]["seq_len"]
+        )
+        test_dataloader = PTBDataloader(
+            osp.join(args["data"]["path"], 'test-{}.pth'.format(
+                args['data']['tokenizer'])), batch_size=args["train"]["batch_size"], seq_len=args["train"]["seq_len"]
+        )
+        tokenizer = CharacterTokenizer(
+            tokens=load_object(osp.join(args['data']['path'], 'tokenizer-{}.pkl'.format(args['data']['tokenizer'])))
         )
 
-    else:
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-            datefmt='%H:%M:%S',
-        )
+        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+        logging.info("Device: {}".format(device))
 
-    # Data
-    train_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'train.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"]
-    )
-    valid_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'valid.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"]
-    )
-    test_dataloader = PTBDataloader(
-        osp.join(args["data"]["path"], 'test.pth'), batch_size=args["train"]["batch_size"],
-        seq_len=args["train"]["seq_len"]
-    )
-    tokenizer = CharacterTokenizer(tokens=load_object(osp.join(args['data']['path'], 'tokenizer.pkl')))
+        # Test Tokenizer:
+        for loader in [train_dataloader, valid_dataloader, test_dataloader]:
+            for i, (x, y) in enumerate(loader):
+                print(''.join(tokenizer.ix_to_char(x[:, 0].reshape(-1).numpy())))
+                print(''.join(tokenizer.ix_to_char(y[:, 0].reshape(-1).numpy())))
+                break
+        import pdb; pdb.set_trace()
 
-    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-    logging.info("Device: {}".format(device))
+        # Model
+        model = _models[args["model"]["name"].lower()](vocab_size=tokenizer.vocab_size, **args["model"])
+        num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    # Model
-    model = _models[args["model"]["name"].lower()](vocab_size=tokenizer.vocab_size, **args["model"])
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        model.to(device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
 
-    model.to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
+        # Parallelize the model
+        if torch.cuda.device_count() > 1:
+            print("Using {} GPUs".format(torch.cuda.device_count()))
+            model = nn.DataParallel(model)
 
-    # Parallelize the model
-    if torch.cuda.device_count() > 1:
-        print("Using {} GPUs".format(torch.cuda.device_count()))
-        model = nn.DataParallel(model)
+        # Training
+        train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
+              output_path, tokenizer, writer)
 
-    # Training
-    train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
-          output_path, tokenizer, writer)
-
-    print("Experiment: `{}` Succeeded".format(folder_name))
+        print("Experiment: `{}` Succeeded".format(folder_name))
 
 
 def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
@@ -166,7 +211,7 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
     best_valid_loss = None
     for i_epoch in range(1, args["train"]["epochs"] + 1):
         epoch_start_time = time.time()
-        train_metrics = train_epoch(
+        train_metrics, hidden_grad_norm = train_epoch(
             model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device
         )
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
@@ -184,11 +229,18 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
             if param.grad is not None:
                 writer.add_histogram(f"{name}.grad", param.grad, i_epoch)
 
+        if args['eval']['compute_grads']:
+            scalars_dict = {}
+            for i, dcdh in enumerate(hidden_grad_norm):
+                # writer.add_scalar(f"grads/dcdh{i}", dcdh, i_epoch)
+                scalars_dict[f"dcdh{i}"] = dcdh
+            writer.add_scalars(f'grads/dcdh', scalars_dict, i_epoch)
+
         # Save the model if the validation loss is the best we've seen so far.
         if not best_valid_loss or valid_metrics['loss'] < best_valid_loss:
+
             # Compute here for convenience
             test_metrics = evaluate(model, test_dataloader, criterion, device=device)
-
             torch.save({
                 'epoch': i_epoch,
                 'optimizer_state_dict': optimizer.state_dict(),
@@ -202,6 +254,34 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
             }, osp.join(output_path, "model_best.pth"))
 
             best_valid_loss = valid_metrics['loss']
+
+            # Save the latest model
+            test_metrics = evaluate(model, test_dataloader, criterion, device=device)
+            torch.save({
+                'epoch': i_epoch,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'model_state_dict': model.state_dict(),
+                'torchrandom_state': torch.get_rng_state(),
+                'train_metrics': valid_metrics,
+                'valid_metrics': valid_metrics,
+                'test_metrics': test_metrics,
+                'num_params': num_params,
+                'config': args
+            }, osp.join(output_path, "model_latest.pth".format(i_epoch)))
+
+        elif i_epoch % 5 == 0 or i_epoch == args["train"]["epochs"]:
+            test_metrics = evaluate(model, test_dataloader, criterion, device=device)
+            torch.save({
+                'epoch': i_epoch,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'model_state_dict': model.state_dict(),
+                'torchrandom_state': torch.get_rng_state(),
+                'train_metrics': valid_metrics,
+                'valid_metrics': valid_metrics,
+                'test_metrics': test_metrics,
+                'num_params': num_params,
+                'config': args
+            }, osp.join(output_path, "model_latest.pth".format(i_epoch)))
 
         # Qualitative prediction
         train_sent_output, train_sent_target, train_sent_source = evaluate_qualitative(
@@ -226,7 +306,8 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
             "".join(train_sent_source[:, 0]), "".join(train_sent_target[:, 0]), "".join(train_sent_output[:, 0])
         )
 
-        sample_str = sample(model, size=100, prime='The', top_k=5, device=device, tokenizer=tokenizer)
+        sample_str = sample(model, size=100, prime='the' if args['data']['tokenizer'] == 'char' else ['the'],
+                            top_k=5, device=device, tokenizer=tokenizer, level=args['data']['tokenizer'])
 
         # Sample
         logging.info("Train:\n{}".format(train_qaul_str))
@@ -249,7 +330,7 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
     return valid_metrics
 
 
-def sample(model, tokenizer, device=torch.device('cpu'), size=100, prime='The', top_k=5):
+def sample(model, tokenizer, device=torch.device('cpu'), size=100, prime='the', top_k=5, level='char'):
     # First off, run through the prime characters
     chars = [ch for ch in prime]
 
@@ -268,14 +349,14 @@ def sample(model, tokenizer, device=torch.device('cpu'), size=100, prime='The', 
         output_id, init_states = model_alias.predict(inp, init_states, top_k=top_k, device=device)
         chars.append(tokenizer.ix_to_char(output_id.item()))
 
-    return ''.join(chars)
+    return ''.join(chars) if level == 'char' else ' '.join(chars)
 
 
 def evaluate_qualitative(model, eval_dataloader, tokenizer: CharacterTokenizer, device: torch.device):
     with torch.no_grad():
         source, target = next(iter(eval_dataloader))
         source, target = source.to(device), target.to(device)
-        output, _ = model(source)  # [bsz, seq, d_vocab]
+        output, _, _ = model(source)  # [bsz, seq, d_vocab]
         output = torch.argmax(torch.softmax(output, dim=-1), dim=-1)
         sentences_output = tokenizer.ix_to_char(output.cpu().detach().numpy())
         sentences_target = tokenizer.ix_to_char(target.cpu().detach().numpy())
@@ -291,7 +372,7 @@ def evaluate(model, eval_dataloader, criterion, device):
         for inputs, targets in eval_dataloader:
             inputs, targets = inputs.to(device), targets.to(device)
 
-            output, _ = model(inputs)
+            output, _, _ = model(inputs)
             n_seqs_curr, n_steps_curr = output.shape[0], output.shape[1]
             loss = criterion(output.reshape(n_seqs_curr * n_steps_curr, -1),
                              targets.reshape(n_seqs_curr * n_steps_curr))
@@ -308,6 +389,7 @@ def train_epoch(model, train_dataloader, optimizer, criterion, clip=5, device=to
     model.train()
     loss_average_meter = AverageMeter()
     ppl_average_meter = AverageMeter()
+    hidden_grad_norm_average_meter = AverageMeter()
 
     # for x, y in get_batches(data, n_seqs, n_steps):
     for i_batch, (inputs, targets) in enumerate(train_dataloader):  # [L, BS]
@@ -315,12 +397,16 @@ def train_epoch(model, train_dataloader, optimizer, criterion, clip=5, device=to
         inputs, targets = inputs.to(device), targets.to(device)
 
         model.zero_grad()
-        output, _ = model.forward(inputs)
+        output, _, hidden_seq = model(inputs)
 
         n_seqs_curr, n_steps_curr = output.shape[0], output.shape[1]
         loss = criterion(output.reshape(n_seqs_curr * n_steps_curr, -1),
                          targets.reshape(n_seqs_curr * n_steps_curr))
         loss.backward()
+
+        # hidden_seq.grad [L, B, D] => [L, B] => [L]
+        hidden_grad_norm_average_meter.add(torch.norm(hidden_seq.grad, dim=-1).sum(dim=-1).cpu().numpy(),
+                                           n=hidden_seq.shape[1])
 
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
         if clip != 'inf':
@@ -333,7 +419,7 @@ def train_epoch(model, train_dataloader, optimizer, criterion, clip=5, device=to
 
     return {"loss": loss_average_meter.value,
             "ppl": ppl_average_meter.value,
-            "bpc": loss_average_meter.value / math.log(2)}
+            "bpc": loss_average_meter.value / math.log(2)}, hidden_grad_norm_average_meter.value  # [S,]
 
 
 if __name__ == '__main__':

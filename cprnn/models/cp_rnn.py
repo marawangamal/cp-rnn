@@ -22,8 +22,9 @@ class CPRNN(nn.Module):
         dropout: Dropout rate
 
     """
-    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False, rank: int = 8,
-                 tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5, **kwargs):
+    def __init__(self,  hidden_size: int, vocab_size: int, input_size: int = 0, rank: int = 8,
+                 tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5,
+                 gate: str = 'tanh', **kwargs):
         super().__init__()
 
         self.dropout = dropout
@@ -33,9 +34,10 @@ class CPRNN(nn.Module):
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
         self.rank = rank
+        self.gate = {"tanh": torch.tanh, "sigmoid": torch.sigmoid, "identity": lambda x: x}[gate]
 
         # Define embedding and decoder layers
-        if use_embedding:
+        if self.input_size:
             self.embedding = nn.Embedding(self.vocab_size, self.input_size)
 
         else:
@@ -75,7 +77,7 @@ class CPRNN(nn.Module):
             else:
                 x = inp.to(device)
 
-            output, init_states = self.forward(x, init_states)
+            output, init_states, _ = self.forward(x, init_states)
             output_conf = torch.softmax(output, dim=-1)  # [S, B, Din]
             output_topk = torch.topk(output_conf, top_k, dim=-1)  # [S, B, K]
 
@@ -118,16 +120,20 @@ class CPRNN(nn.Module):
 
             # [B, D_i'][D_i', R] => [B, R]
             b_prime = torch.cat((x_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.b
-            h_tnew = torch.sigmoid(
+            h_tnew = self.gate(
                 torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c)
             )
             hidden_seq.append(h_tnew.unsqueeze(0))
             h_t = h_tnew
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
+        try:
+            hidden_seq.retain_grad()
+        except:
+            pass
         output = self.decoder(hidden_seq.contiguous())
 
         if self.batch_first:
             output = output.transpose(0, 1)
 
-        return output, h_t
+        return output, h_t, hidden_seq
