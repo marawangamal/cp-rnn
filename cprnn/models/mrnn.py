@@ -26,7 +26,8 @@ class MRNN(nn.Module):
 
     """
     def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False, rank: int = 8,
-                 tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5, **kwargs):
+                 gate: str = 'tanh', tokenizer: CharacterTokenizer = None, batch_first: bool = True,
+                 dropout: float = 0.5, **kwargs):
         super().__init__()
 
         self.dropout = dropout
@@ -36,6 +37,8 @@ class MRNN(nn.Module):
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
         self.rank = rank
+        self.gate = {"tanh": torch.tanh, "sigmoid": torch.sigmoid, "identity": lambda x: x}[gate]
+
 
         # Define embedding and decoder layers
         if use_embedding:
@@ -124,11 +127,10 @@ class MRNN(nn.Module):
 
             # [B, D_i'][D_i', R] => [B, R]
             b_prime = x_t @ self.b
-            h_tnew = torch.sigmoid(
+            h_t = self.gate(
                 torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c) + x_t @ self.beta + self.alpha
             )
-            hidden_seq.append(h_tnew.unsqueeze(0))
-            h_t = h_tnew
+            hidden_seq.append(h_t.unsqueeze(0))
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
         output = self.decoder(hidden_seq.contiguous())

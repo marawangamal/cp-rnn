@@ -22,7 +22,8 @@ class SecondOrderRNN(nn.Module):
 
     """
     def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False,
-                 tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5, **kwargs):
+                 gate: str = 'tanh', tokenizer: CharacterTokenizer = None, batch_first: bool = True,
+                 dropout: float = 0.5, **kwargs):
         super().__init__()
 
         self.use_embedding = use_embedding
@@ -32,6 +33,7 @@ class SecondOrderRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
+        self.gate = {"tanh": torch.tanh, "sigmoid": torch.sigmoid, "identity": lambda x: x}[gate]
 
         # Define embedding and decoder layers
         if use_embedding:
@@ -114,9 +116,8 @@ class SecondOrderRNN(nn.Module):
 
             h_prime = torch.cat((h_t, torch.ones(batch_size, 1).to(device)), dim=1)  # [B, D_h][D_h, R] => [B, R]
             x_prime = torch.cat((x_t, torch.ones(batch_size, 1).to(device)), dim=1)   # [B, D_i'][D_i', R] => [B, R]
-            h_tnew = torch.sigmoid(torch.einsum("bi,bj,ijk->bk", h_prime, x_prime, self.w))
-            hidden_seq.append(h_tnew.unsqueeze(0))
-            h_t = h_tnew
+            h_t = self.gate(torch.einsum("bi,bj,ijk->bk", h_prime, x_prime, self.w))
+            hidden_seq.append(h_t.unsqueeze(0))
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
         output = self.decoder(hidden_seq.contiguous())

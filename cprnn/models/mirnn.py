@@ -23,7 +23,8 @@ class MIRNN(nn.Module):
 
     """
     def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False, rank: int = 8,
-                 tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5, **kwargs):
+                 tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5,
+                 gate: str = 'tanh', **kwargs):
         super().__init__()
 
         self.dropout = dropout
@@ -33,6 +34,7 @@ class MIRNN(nn.Module):
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
         self.rank = rank
+        self.gate = {"tanh": torch.tanh, "sigmoid": torch.sigmoid, "identity": lambda x: x}[gate]
 
         # Define embedding and decoder layers
         if use_embedding:
@@ -124,7 +126,9 @@ class MIRNN(nn.Module):
             x_t = x[t, :, :]
 
             # Compute MI-RNN factors
-            h_t = self.alpha * (x_t @  self.w) + self.beta1 * (h_t @ self.u) + self.beta2 * (x_t @ self.w) + self.b
+            h_t = self.gate(
+                self.alpha * (x_t @  self.w) + self.beta1 * (h_t @ self.u) + self.beta2 * (x_t @ self.w) + self.b
+            )
             hidden_seq.append(h_t.unsqueeze(0))
 
         hidden_seq = torch.cat(hidden_seq, dim=0)
