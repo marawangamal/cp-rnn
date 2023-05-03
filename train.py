@@ -192,7 +192,7 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
                 writer.add_histogram(f"{name}.grad", param.grad, i_epoch)
 
         # Save the model if the validation loss is the best we've seen so far.
-        if not best_valid_loss or valid_metrics['loss'] < best_valid_loss:
+        if best_valid_loss is None or valid_metrics['loss'] < best_valid_loss:
             # Compute here for convenience
             test_metrics = evaluate(model, test_dataloader, criterion, device=device)
 
@@ -209,6 +209,33 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
             }, osp.join(output_path, "model_best.pth"))
 
             best_valid_loss = valid_metrics['loss']
+
+            # Save the latest model
+            torch.save({
+                'epoch': i_epoch,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'model_state_dict': model.state_dict(),
+                'torchrandom_state': torch.get_rng_state(),
+                'train_metrics': valid_metrics,
+                'valid_metrics': valid_metrics,
+                'test_metrics': test_metrics,
+                'num_params': num_params,
+                'config': args
+            }, osp.join(output_path, "model_latest.pth"))
+
+        elif i_epoch % 5 == 0 or i_epoch == args["train"]["epochs"]:
+            test_metrics = evaluate(model, test_dataloader, criterion, device=device)
+            torch.save({
+                'epoch': i_epoch,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'model_state_dict': model.state_dict(),
+                'torchrandom_state': torch.get_rng_state(),
+                'train_metrics': valid_metrics,
+                'valid_metrics': valid_metrics,
+                'test_metrics': test_metrics,
+                'num_params': num_params,
+                'config': args
+            }, osp.join(output_path, "model_latest.pth"))
 
         # Qualitative prediction
         train_sent_output, train_sent_target, train_sent_source = evaluate_qualitative(
