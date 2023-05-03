@@ -98,36 +98,51 @@ cp -r data $SLURM_TMPDIR/data
 #python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=mrnn model.rank=512 train.batch_size=128
 
 # CPRNN (d=128)
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=32 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=64 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=128 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=256 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=512 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=32 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=64 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=128 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=256 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=512 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=1024 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=2048 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=128 model.rank=4096 train.batch_size=128
 
 # CPRNN (d=256)
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=32 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=64 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=128 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=256 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=512 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=32 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=64 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=128 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=256 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=512 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=1024 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=2048 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=256 model.rank=4096 train.batch_size=128
 
 # CPRNN (d=512)
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=32 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=64 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=128 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=256 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=512 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=32 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=64 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=128 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=256 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=512 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=1024 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=2048 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=512 model.rank=4096 train.batch_size=128
 
 # CPRNN (d=1024)
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=32 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=64 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=128 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=256 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=512 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=32 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=64 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=128 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=256 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=512 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=1024 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=2048 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.hidden_size=1024 model.rank=4096 train.batch_size=128
 
 # CPRNN (d=2048)
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=32 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=64 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=128 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=256 train.batch_size=128
-python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=512 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=32 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=64 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=128 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=256 train.batch_size=128
+#python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=512 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=1024 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=2048 train.batch_size=128
+python train.py data.path=$SLURM_TMPDIR/data/processed/ptb model.name=cprnn model.rank=4096 train.batch_size=128

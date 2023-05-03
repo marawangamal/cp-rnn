@@ -11,7 +11,7 @@ import torchtext
 
 from cprnn.features.tokenizer import CharacterTokenizer
 from cprnn.utils import save_object
-from cprnn.models import LSTM, CPLSTM, CPRNN, SecondOrderRNN, SecondOrderRNNKR, LSTMPT
+from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,10 +22,10 @@ data_path = {
     "processed": osp.join(ROOT_DIR, "data", "processed")
 }
 
-models = {"cprnn": CPRNN, "cplstm": CPLSTM, "lstm": LSTM, "2rnnkr": SecondOrderRNNKR, "lstmpt": LSTMPT}
+models = {"cprnn": CPRNN, "lstmpt": LSTMPT}
 
 
-def ptb_get_indices(dataset: torch.utils.data.Dataset):
+def torchtext_get_indices(dataset: torch.utils.data.Dataset):
     """Merge whole dataset/corpus into single vector"""
     dataset_ids = torch.zeros(sum([len(line) for line in dataset]), dtype=torch.long)
     tokenizer = CharacterTokenizer(tokens=[s for s in string.printable])
@@ -33,25 +33,43 @@ def ptb_get_indices(dataset: torch.utils.data.Dataset):
     idx = 0
     for line in dataset:
         for char in line:
-            dataset_ids[idx] = tokenizer.tokenize(char).item()
+            if char in tokenizer.tokens:
+                dataset_ids[idx] = tokenizer.tokenize(char).item()
+            else:
+                dataset_ids[idx] = tokenizer.add_token(char)
             idx += 1
 
     return dataset_ids, tokenizer
 
 
-def ptb_make_dataset(**kwargs):
+def torchtext_make_dataset(dataset='ptb', **kwargs):
     """Merge whole dataset/corpus into single integer vector and save its tokenizer"""
-    logger.info("Processing Penn Treebank dataset...")
-    for split in ['train']:
-        dataset = torchtext.datasets.PennTreebank(root=osp.join(data_path['raw'], 'ptb', split), split=split)
-        dataset_ids, tokenizer = ptb_get_indices(dataset)
+    logger.info("Processing {} dataset...".format(dataset.upper()))
+    for split in ['train', 'valid', 'test']:
+        dataset_torchtext = {
+            "wiki": torchtext.datasets.WikiText103,
+            "ptb": torchtext.datasets.PennTreebank
+        }[dataset](root=osp.join(data_path['raw'], dataset, split), split=split)
+        dataset_ids, tokenizer = torchtext_get_indices(dataset_torchtext)
 
-        if not osp.exists(osp.join(data_path['processed'], 'ptb')):
-            os.makedirs(osp.join(data_path['processed'], 'ptb'))
-        torch.save(dataset_ids, osp.join(data_path['processed'], 'ptb', split + '.pth'))
-        save_object(tokenizer.tokens, osp.join(data_path['processed'], 'ptb', 'tokenizer.pkl'))
+        if not osp.exists(osp.join(data_path['processed'], dataset)):
+            os.makedirs(osp.join(data_path['processed'], dataset))
 
-    logging.info("Done. Files saved to {}".format(osp.join(data_path['processed'], 'ptb', split + '.pth')))
+        # import pdb; pdb.set_trace()
+        torch.save(dataset_ids, osp.join(data_path['processed'], dataset,  '{}-char.pth'.format(split)))
+
+        print("Tokenizer test:")
+        print(''.join([tokenizer.ix_to_char(k.item()) for k in dataset_ids[:1000]]))
+
+        if split == 'train':
+            save_object(tokenizer.tokens, osp.join(data_path['processed'], dataset, 'tokenizer-char.pkl'))
+            logging.info("Tokenizer saved to {} ".format(
+                osp.join(data_path['processed'], dataset, 'tokenizer-char.pkl'))
+            )
+
+        logging.info("File saved to {} | Length {}".format(
+            osp.join(data_path['processed'], dataset,  '{}-char.pth'.format(split)), len(dataset_ids))
+        )
 
 
 def toy_make_dataset(input_size=32, hidden_size=32, vocab_size=16, rank=32, train_length=1000, valid_length=100,
@@ -125,7 +143,8 @@ def anna_make_dataset(**kwargs):
 
 
 make_dataset_functions = {
-    'ptb': ptb_make_dataset,
+    'ptb': lambda **kwargs: torchtext_make_dataset(**kwargs),
+    'wiki': lambda **kwargs: torchtext_make_dataset(**kwargs),
     'toy': toy_make_dataset,
     "anna": anna_make_dataset
 }

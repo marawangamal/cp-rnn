@@ -11,13 +11,25 @@ class CharacterTokenizer:
     def __init__(self, tokens: Union[list, tuple] = None):
 
         # Character to index and index to character maps
-        self._tokens = list(tokens) if not isinstance(tokens, list) else tokens
+        self._tokens = [list(set(tokens))] if tokens is not None else list()
+        self._tokens = ["<UNK>", *self._tokens] if "<UNK>" not in self._tokens else self._tokens
         self.char_to_ix_dct = {ch: i for i, ch in enumerate(tokens)}
         self.ix_to_char_dct = {i: ch for i, ch in enumerate(tokens)}
 
     @property
     def vocab_size(self):
         return len(self.char_to_ix_dct)
+
+    def add_token(self, token):
+        if token not in self.char_to_ix_dct:
+            self._tokens.append(token)
+            self.char_to_ix_dct[token] = len(self.char_to_ix_dct)
+
+            if len(self.ix_to_char_dct) in self.ix_to_char_dct:
+                raise ValueError("Tokenizer is corrupted. Please check the integrity of the tokenizer.")
+
+            self.ix_to_char_dct[len(self.ix_to_char_dct)] = token
+        return self.char_to_ix_dct[token]
 
     @property
     def tokens(self):
