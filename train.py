@@ -93,27 +93,27 @@ def main(cfg: DictConfig):
             {**args["train"], **args['model'], **{"tokenizer": args['data']['tokenizer'], "trial": t}}
         )
         folder_name = "_".join(["{}{}".format(k, v) for k, v in exp_name.items()])
+        dct_latest, dct_best = None, None
 
         output_path = osp.join(args['data']['output'], osp.split(args["data"]["path"])[-1], folder_name)
         if not osp.exists(output_path):
             os.makedirs(output_path)
             print("Running Experiment: `{}`".format(folder_name))
 
-        elif not osp.exists(osp.join(output_path, 'model_best.pth')):
+        elif not osp.exists(osp.join(output_path, 'model_latest.pth')):
             print("Running Experiment: `{}`".format(folder_name))
 
         else:  # Experiment already exists
-            dct = torch.load(osp.join(output_path, 'model_best.pth'))
-
-            try:
-                dct_latest = torch.load(osp.join(output_path, 'model_latest.pth'))
-                print("Experiment `{}` already exists. (Best model @ epoch {} | Latest @ epoch {})".format(
-                    folder_name, dct['epoch'], dct_latest['epoch']
+            dct_latest = torch.load(osp.join(output_path, 'model_latest.pth'))
+            dct_best = torch.load(osp.join(output_path, 'model_best.pth'))
+            if dct_latest['epoch'] >= args['train']['epochs']:
+                print("Experiment `{}` already exists. (Latest @ epoch {})".format(
+                    folder_name, dct_latest['epoch']
                 ))
+                continue
 
-            except:
-                print("Experiment `{}` already exists. (Best model @ epoch {})".format(folder_name, dct['epoch']))
-            continue
+            else:
+                print("Running Experiment: `{}`".format(folder_name))
 
         with open(osp.join(output_path, 'configs.yaml'), 'w') as outfile:
             yaml.dump(args, outfile)
@@ -125,6 +125,7 @@ def main(cfg: DictConfig):
             level=logging.INFO,
             format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
             datefmt='%H:%M:%S',
+            filemode='a'
         )
         logging.getLogger().addHandler(logging.FileHandler(osp.join(output_path, "logging.txt")))
 
@@ -152,9 +153,22 @@ def main(cfg: DictConfig):
         model = _models[args["model"]["name"].lower()](vocab_size=tokenizer.vocab_size, **args["model"])
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-        model.to(device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
+
+        if dct_latest is not None:
+            model.load_state_dict(dct_latest['model_state_dict'])
+            model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
+            optimizer.load_state_dict(dct_latest['optimizer_state_dict'])
+            curr_epoch = dct_latest['epoch']
+            curr_best_valid_loss = dct_best['valid_metrics']['loss']
+            print("Resuming training from from epoch {}".format(dct_latest['epoch']))
+
+        else:
+            curr_epoch = 0
+            curr_best_valid_loss = None
+            model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
 
         # Parallelize the model
         if torch.cuda.device_count() > 1:
@@ -162,16 +176,18 @@ def main(cfg: DictConfig):
             model = nn.DataParallel(model)
 
         # Training
-        train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
-              output_path, tokenizer, writer)
+        train(
+            model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
+            output_path, tokenizer, writer, curr_epoch=curr_epoch+1, best_valid_loss=curr_best_valid_loss
+        )
 
         print("Experiment: `{}` Succeeded".format(folder_name))
 
 
 def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
-          output_path, tokenizer, writer):
-    best_valid_loss = None
-    for i_epoch in range(1, args["train"]["epochs"] + 1):
+          output_path, tokenizer, writer, curr_epoch=1, best_valid_loss=None):
+
+    for i_epoch in range(curr_epoch, args["train"]["epochs"] + 1):
         epoch_start_time = time.time()
         train_metrics = train_epoch(
             model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device
