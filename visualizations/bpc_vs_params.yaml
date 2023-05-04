@@ -1,27 +1,8 @@
-# 1. Generating Hyperparameter Tuning Plot
-#visualization:
-#  experiments: /home/mila/m/marawan.gamal/projects/cp-rnn/runs/ptb
-#  output: mirnn_hyperparameter_search.png
-#  group_by: ["model.dropout",  "train.batch_size"]
-#train:
-#  epochs: 25
-#  lr: 0.0001
-#  batch_size: any
-#  seq_len: 50
-#  grad_clip: inf
-#model:
-#  name: mirnn # lstmpt, cprnn, 2rnn, 'mirnn'
-#  input_size: 200
-#  hidden_size: 2048
-#  rank: any
-#  dropout: any
-#data:
-#  path: any # Path to the data
-#eval:
-#  path: runs/ptb/e25_l0.0001_b1024_s50_ginf_ncprnn_i200_h2048_r64_d0
+# ===================================================================================================
+# PTB Dataset
+# ===================================================================================================
 
-
-### 2. Generating BPC vs. Number of Parameters plot (PTB)
+## 1. BPC vs. Params (All models)
 #visualization:
 #  experiments: /home/mila/m/marawan.gamal/projects/cp-rnn/runs/ptb
 #  output: /home/mila/m/marawan.gamal/projects/cp-rnn/figures/ptb_bpc_vs_params.png
@@ -54,12 +35,50 @@
 #  path: any
 
 
-## 3. Generating BPC vs. Number of Parameters plot (Varying Rank)
+# 2. BPC vs. Params (CPRNNs only)
+visualization:
+  experiments: /home/mila/m/marawan.gamal/projects/cp-rnn/runs/ptb
+  output: /home/mila/m/marawan.gamal/projects/cp-rnn/figures/ptb_cprnn_bpc_vs_params.png
+  plt_type: plot # scatter, plot
+  group_by: [ "model.hidden_size" ]
+  min_epochs: 24
+  min_trials: 3
+runs: any
+train:
+  epochs: 25
+  lr: 0.0001
+  batch_size: 128
+  seq_len: 50
+  grad_clip: inf
+  hpopt: any
+  verbose: any
+model:
+  name: cprnn # lstmpt, cprnn, 2rnn, 'mirnn'
+  input_size: any
+  hidden_size: any
+  rank: any
+  dropout: 0
+  gate: tanh # tanh, sigmoid, identity
+data:
+  path: any # Path to the data
+  tokenizer: char # char, word
+  output: any
+eval:
+  compute_grads: any
+  path: any
+
+# ===================================================================================================
+# ANNA Dataset
+# ===================================================================================================
+
+## 1. BPC vs. Params (All models)
 #visualization:
-#  experiments: /home/mila/m/marawan.gamal/projects/cp-rnn/runs/ptb
-#  output: /home/mila/m/marawan.gamal/projects/cp-rnn/figures/bpc_vs_params.png
-#  plt_type: plot # scatter, plot
-#  group_by: [ "model.hidden_size" ]
+#  experiments: /home/mila/m/marawan.gamal/projects/cp-rnn/runs/anna
+#  output: /home/mila/m/marawan.gamal/projects/cp-rnn/figures/anna_bpc_vs_params.png
+#  plt_type: scatter # scatter, plot, errorbar
+#  group_by: ["model.name"]
+#  min_epochs: 24
+#  min_trials: 3
 #runs: any
 #train:
 #  epochs: 25
@@ -84,16 +103,12 @@
 #  compute_grads: any
 #  path: any
 
-# ===================================================================================================
-# ANNA Dataset
-# ===================================================================================================
-
-## 1. Generating BPC vs. Number of Parameters plot (ANNA)
+## 2. BPC vs. Params (CPRNNs only)
 #visualization:
 #  experiments: /home/mila/m/marawan.gamal/projects/cp-rnn/runs/anna
-#  output: /home/mila/m/marawan.gamal/projects/cp-rnn/figures/anna_bpc_vs_params.png
-#  plt_type: scatter # scatter, plot, errorbar
-#  group_by: ["model.name"]
+#  output: /home/mila/m/marawan.gamal/projects/cp-rnn/figures/anna_cprnn_bpc_vs_params.png
+#  plt_type: plot # scatter, plot, errorbar
+#  group_by: [ "model.hidden_size" ]
 #  min_epochs: 24
 #  min_trials: 3
 #runs: any
@@ -106,7 +121,7 @@
 #  hpopt: any
 #  verbose: any
 #model:
-#  name: any # lstmpt, cprnn, 2rnn, 'mirnn'
+#  name: cprnn # lstmpt, cprnn, 2rnn, 'mirnn'
 #  input_size: any
 #  hidden_size: any
 #  rank: any

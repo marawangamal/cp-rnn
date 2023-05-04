@@ -118,11 +118,15 @@ def bpc_plot(args):
         params, bpc_mean, bpc_std, hidden_size = np.array(params)[ids], np.array(bpc_mean)[ids], \
                                                  np.array(bpc_std)[ids], np.array(hidden_size)[ids]
 
+        if args['visualization']['plt_type'] == 'scatter':
+            plt.scatter(params, bpc_mean, label=group_name, marker=next(marker))
+            plt.errorbar(params, bpc_mean, yerr=bpc_std, ls='none')
 
-        {"plot": plt.plot, "scatter": plt.scatter}[args['visualization']['plt_type']](
-            params, bpc_mean, label=group_name, marker=next(marker)
-        )
-        plt.errorbar(params, bpc_mean, yerr=bpc_std, ls='none')
+        elif args['visualization']['plt_type'] == 'plot':
+            plt.errorbar(params, bpc_mean, yerr=bpc_std, label=group_name, marker=next(marker))
+
+        else:
+            raise ValueError("Invalid plt_type: {}".format(args['visualization']['plt_type']))
 
         print("Group: {} | Num. Pts {}".format(group_name, len(bpc_mean)))
         print("  BPC {}".format(bpc_mean[:5]))
