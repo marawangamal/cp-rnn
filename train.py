@@ -9,8 +9,8 @@ import os.path as osp
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from vizier.service import clients
-from vizier.service import pyvizier as vz
+# from vizier.service import clients
+# from vizier.service import pyvizier as vz
 
 import torch
 import torch.nn as nn

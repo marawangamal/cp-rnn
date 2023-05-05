@@ -14,7 +14,7 @@ python-dotenv>=0.5.1
 pathlib2
 
 torch~=2.0.0
-numpy~=1.24.2
+numpy
 torchtext~=0.15.1
 setuptools~=49.2.1
 
@@ -22,5 +22,4 @@ matplotlib==3.7.1
 numpy==1.23.5
 PyYAML==6.0
 scikit_learn==1.2.2
-setuptools==41.2.0
-vizier==0.1dev
+setuptools
