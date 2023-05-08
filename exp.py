@@ -1,15 +1,20 @@
 import random
+import time
 
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 import math
 
 import torch
-import sklearn.decomposition
-from sklearn.preprocessing import StandardScaler
+# import sklearn.decomposition
+# from sklearn.preprocessing import StandardScaler
 
-from transformers import BertTokenizer, BertModel, BertForNextSentencePrediction
+# from transformers import BertTokenizer, BertModel, BertForNextSentencePrediction
+
+from torchvision.models import resnet50
+from flopco import FlopCo
+from musco.pytorch import CompressorVBMF, CompressorPR, CompressorManual
 
 
 def simulated_annealing(initial_state, outfile='bert_simaneal_expvar.png'):
@@ -30,21 +35,21 @@ def simulated_annealing(initial_state, outfile='bert_simaneal_expvar.png'):
         neighbor = get_neighbor(current_state)
 
         # Check if neighbor is best so far
-        cost_neighbor, cum_sum_eigenvalues_neighbor = get_cost(neighbor)
-        cost_current, cum_sum_eigenvalues_current = get_cost(current_state)
+        cost_neighbor, eigenvalues_neighbor = get_cost(neighbor)
+        cost_current, eigenvalues_current = get_cost(current_state)
         cost_diff = cost_current - cost_neighbor
 
         # if the new solution is better, accept it
         if cost_diff > 0:
             solution = neighbor
-            cum_sum_eigenvalues_current = cum_sum_eigenvalues_neighbor
+            eigenvalues_current = eigenvalues_neighbor
             flag = "Accept"
             cost = cost_neighbor
         # if the new solution is not better, accept it with a probability of e^(-cost/temp)
         else:
             if random.uniform(0, 1) < math.exp(-cost_diff / current_temp):
                 solution = neighbor
-                cum_sum_eigenvalues_current = cum_sum_eigenvalues_neighbor
+                eigenvalues_current = eigenvalues_neighbor
                 flag = "Accept"
                 cost = cost_neighbor
             else:
@@ -53,14 +58,14 @@ def simulated_annealing(initial_state, outfile='bert_simaneal_expvar.png'):
 
         # decrement the temperature
         current_temp -= alpha
-        print("{} | Temp: {} | Cost: {} | {}".format(flag, current_temp, cost,  cum_sum_eigenvalues_current))
-        plt.plot(cum_sum_eigenvalues_current, fmts[i % len(fmts)])
+        print("{} | Temp: {} | Cost: {} | {}".format(flag, current_temp, cost,  eigenvalues_current[:5]))
+        plt.plot(eigenvalues_current, fmts[i % len(fmts)])
         i += 1
 
         # if i > 10:
         #     break
 
-    plt.ylabel('Explained variance ratio')
+    plt.ylabel('Sigmas')
     plt.xlabel('Principal component index')
     plt.legend(loc='best')
     plt.tight_layout()
@@ -177,14 +182,85 @@ def getbertmat():
     import pdb; pdb.set_trace()
     return vecs
 
+
+def test_latency(model, device='cpu', inp_shape=(3, 224, 224), batch_size=1, iters=100):
+    """Test latency of the argument model."""
+
+    with torch.no_grad():
+
+        device = torch.device(device)
+        model = model.to(device)
+
+        # Create dummy input.
+        dummy_input = torch.randn(batch_size, *inp_shape).to(device)
+
+        # Warm up GPU.
+        for _ in range(10):
+            _ = model(dummy_input)
+
+        # Measure latency.
+        latency = []
+        for _ in range(iters):
+            start = time.time()
+            _ = model(dummy_input)
+            latency.append(time.time() - start)
+
+    return np.mean(latency), np.std(latency)
+
+
+def get_params(rmodel):
+
+    n_params = 0
+    for name, param in rmodel.named_parameters():
+        n_params += param.numel()
+    return n_params
+
+
+def compressor(device='cuda:0'):
+
+    model = resnet50(pretrained=True)
+    model.to(device)
+    model_stats = FlopCo(model, device=device)
+
+    baseline_mean, baseline_std = test_latency(model, device=device)
+    baseline_params = get_params(model)
+
+    compressor = CompressorVBMF(model,
+                                model_stats,
+                                ft_every=5,
+                                nglobal_compress_iters=2)
+
+    i = 0
+    while not compressor.done:
+        # Compress layers
+        print("Compressing...")
+        compressor.compression_step()
+        compressed_model = compressor.compressed_model
+        compressed_params = get_params(compressed_model)
+        compressed_mean, compressed_std = test_latency(compressed_model)
+
+        # Fine-tune compressed model.
+        print("[{}] Baseline: {:.4f} +/- {:.4f} P: {:,} | Compressed: {:.4f} +/- {:.4f} P: {:,} | CR: {:.2f} Speedup: {:.2f}".format(
+            i, baseline_mean, baseline_std, baseline_params, compressed_mean, compressed_std, compressed_params,
+            baseline_params / compressed_params, baseline_mean / compressed_mean
+        ))
+        i += 1
+
+
+    # Compressor decomposes 5 layers on each iteration.
+    # Compressed model is saved at compressor.compressed_model.
+    # You have to fine-tune model after each iteration to restore accuracy.
+
 def main():
 
     # vecs = getresenet50mat()
-    vecs = getbertmat()
+    # vecs = getbertmat()
 
-    simulated_annealing(vecs, outfile='bert_simaneal_expvar.png')
-    # explained_variance(vecs, iters=16, outfile='bert_expvar.png')
+    vecs = np.eye(32)
+
+    # simulated_annealing(vecs, outfile='eye_simaneal_expvar.png')
+    explained_variance(vecs, iters=16, outfile='eye_rand_expvar.png')
 
 
 if __name__ == '__main__':
-    main()
+    compressor()
