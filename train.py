@@ -202,11 +202,6 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
                 valid_metrics['loss'], valid_metrics['ppl'], valid_metrics['bpc']
             ))
 
-        # # Get the gradients and log the histogram
-        # for name, param in model.named_parameters():
-        #     if param.grad is not None:
-        #         writer.add_histogram(f"{name}.grad", param.grad, i_epoch)
-
         # Save the model if the validation loss is the best we've seen so far.
         if best_valid_loss is None or valid_metrics['loss'] < best_valid_loss:
             # Compute here for convenience
