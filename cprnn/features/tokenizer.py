@@ -11,7 +11,7 @@ class CharacterTokenizer:
     def __init__(self, tokens: Union[list, tuple] = None):
 
         # Character to index and index to character maps
-        self._tokens = [list(set(tokens))] if tokens is not None else list()
+        self._tokens = list(set(tokens)) if tokens is not None else list()
         self._tokens = ["<UNK>", *self._tokens] if "<UNK>" not in self._tokens else self._tokens
         self.char_to_ix_dct = {ch: i for i, ch in enumerate(tokens)}
         self.ix_to_char_dct = {i: ch for i, ch in enumerate(tokens)}
