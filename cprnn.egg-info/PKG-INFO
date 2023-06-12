@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: cprnn
+Version: 0.1.0
+Summary: Exploring multiplicative interactions in CP-RNNs
+Author: Marawan Gamal, Maude Lizaire
+License: MIT
+License-File: LICENSE
