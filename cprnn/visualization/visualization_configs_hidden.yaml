@@ -1,0 +1,51 @@
+## Generating Hyperparameter Tuning Plot
+#visualization:
+#  root: "/home/mila/m/marawan.gamal/projects/cp-rnn/runs/ptb"
+#  output_filename: "mirnn_hyperparameter_search.png"
+#  group_by: ["model.dropout",  "train.batch_size"]
+#train:
+#  epochs: 25
+#  lr: 0.0001
+#  batch_size: any
+#  seq_len: 50
+#  grad_clip: inf
+#model:
+#  name: mirnn # lstmpt, cprnn, 2rnn, 'mirnn'
+#  input_size: 200
+#  hidden_size: 2048
+#  rank: any
+#  dropout: any
+#data:
+#  path: any # Path to the data
+#eval:
+#  path: 'runs/ptb/e25_l0.0001_b1024_s50_ginf_ncprnn_i200_h2048_r64_d0'
+
+
+# Generating BPC vs. Number of Parameters plot
+visualization:
+  #  root: "/home/mila/l/lizairem/coding/cprnn/runs/ptb"
+  root: "/network/scratch/l/lizairem/cprnn/runs/ptb"
+  output_filename: "bpc_vs_params.png"
+  group_by: ["model.name"]
+train:
+  epochs: 300
+  lr: 0.0001
+  batch_size: any
+  seq_len: 50
+  grad_clip: inf
+  hpopt: any
+  verbose: any
+model:
+  name: [cprnn] # lstmpt, cprnn, 2rnn, 'mirnn'
+  input_size: any #changed from 200 to any
+  hidden_size: any
+  rank: any
+  dropout: 0
+  gate: any #added
+data:
+  path: any # Path to the data
+  output: any #added
+  tokenizer: any #added
+eval:
+  path: any
+runs : any
