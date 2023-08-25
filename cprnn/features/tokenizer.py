@@ -53,4 +53,5 @@ class CharacterTokenizer:
             raise ValueError("Tokenizer expected either int or array as input but got {}".format(type(ix)))
 
     def tokenize(self, sentence: str = None):
-        return np.array(list(map(self.char_to_ix, sentence)), dtype=np.int32)
+        return np.array(self.char_to_ix_dct[sentence]) # sentence is always just one token in build_features
+        # return np.array(list(map(self.char_to_ix, sentence)), dtype=np.int32)

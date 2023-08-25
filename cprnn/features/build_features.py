@@ -25,11 +25,10 @@ data_path = {
 models = {"cprnn": CPRNN, "lstmpt": LSTMPT}
 
 
-def torchtext_get_indices(dataset: torch.utils.data.Dataset):
+def torchtext_get_char_indices(dataset: torch.utils.data.Dataset):
     """Merge whole dataset/corpus into single vector"""
     dataset_ids = torch.zeros(sum([len(line) for line in dataset]), dtype=torch.long)
     tokenizer = CharacterTokenizer(tokens=[s for s in string.printable])
-
     idx = 0
     for line in dataset:
         for char in line:
@@ -38,37 +37,63 @@ def torchtext_get_indices(dataset: torch.utils.data.Dataset):
             else:
                 dataset_ids[idx] = tokenizer.add_token(char)
             idx += 1
+    return dataset_ids, tokenizer
 
+def torchtext_get_word_indices(dataset: torch.utils.data.Dataset, tokenizer=None):
+    """Merge whole dataset/corpus into single vector"""
+    dataset_ids = torch.zeros(sum([len(line.split(" ")) for line in dataset]), dtype=torch.long)
+    if tokenizer==None: tokenizer = CharacterTokenizer(tokens=[])
+    print('test')
+    idx = 0
+    line_num=0
+    for line in dataset:
+        print('line ', line_num, " : ", line)
+        for word in line.split(" "):
+            if word in tokenizer.tokens:
+                dataset_ids[idx] = tokenizer.tokenize(word).item()
+            else:
+                dataset_ids[idx] = tokenizer.add_token(word)
+            idx += 1
+        line_num +=1
+        if line_num == 10:
+            break
+    print('vocab size', tokenizer.vocab_size)
     return dataset_ids, tokenizer
 
 
-def torchtext_make_dataset(dataset='ptb', **kwargs):
+def torchtext_make_dataset(dataset='ptb', level='char', **kwargs):
     """Merge whole dataset/corpus into single integer vector and save its tokenizer"""
     logger.info("Processing {} dataset...".format(dataset.upper()))
+    tokenizer=None
     for split in ['train', 'valid', 'test']:
         dataset_torchtext = {
             "wiki": torchtext.datasets.WikiText103,
             "ptb": torchtext.datasets.PennTreebank
         }[dataset](root=osp.join(data_path['raw'], dataset, split), split=split)
-        dataset_ids, tokenizer = torchtext_get_indices(dataset_torchtext)
-
+        if level == 'char':
+            dataset_ids, tokenizer = torchtext_get_char_indices(dataset_torchtext)
+        elif level == 'word':
+            print('word level')
+            dataset_ids, tokenizer = torchtext_get_word_indices(dataset_torchtext, tokenizer)
+        exit()
         if not osp.exists(osp.join(data_path['processed'], dataset)):
             os.makedirs(osp.join(data_path['processed'], dataset))
-
-        # import pdb; pdb.set_trace()
-        torch.save(dataset_ids, osp.join(data_path['processed'], dataset,  '{}-char.pth'.format(split)))
+        torch.save(dataset_ids, osp.join(data_path['processed'], dataset,  '{}-{}.pth'.format(split, level)))
 
         print("Tokenizer test:")
-        print(''.join([tokenizer.ix_to_char(k.item()) for k in dataset_ids[:1000]]))
+        if level == 'char':
+            print(''.join([tokenizer.ix_to_char(k.item()) for k in dataset_ids[:1000]]))
+        elif level == 'word':
+            print(''.join([tokenizer.ix_to_char(k.item())+" " for k in dataset_ids[:1000]]))
 
         if split == 'train':
-            save_object(tokenizer.tokens, osp.join(data_path['processed'], dataset, 'tokenizer-char.pkl'))
+            save_object(tokenizer.tokens, osp.join(data_path['processed'], dataset, 'tokenizer-{}.pkl'.format(level)))
             logging.info("Tokenizer saved to {} ".format(
-                osp.join(data_path['processed'], dataset, 'tokenizer-char.pkl'))
+                osp.join(data_path['processed'], dataset, 'tokenizer-{}.pkl'.format(level)))
             )
 
         logging.info("File saved to {} | Length {}".format(
-            osp.join(data_path['processed'], dataset,  '{}-char.pth'.format(split)), len(dataset_ids))
+            osp.join(data_path['processed'], dataset,  '{}-{}.pth'.format(split,level)), len(dataset_ids))
         )
 
 
@@ -153,6 +178,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Build datasets for language modelling')
     parser.add_argument('-d', '--dataset', type=str, default='ptb', choices=make_dataset_functions.keys())
     parser.add_argument('-m', '--model', type=str, default='2rnnkr', choices=models.keys())
+    parser.add_argument('-l', '--level', type=str, default='char', choices=['char', 'word'])
     args = parser.parse_args()
 
     make_dataset_functions[args.dataset](**vars(args))
