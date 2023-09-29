@@ -21,7 +21,7 @@ class RNN(nn.Module):
         dropout: Dropout rate
 
     """
-    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False, rank: int = 8,
+    def __init__(self, input_size: int, hidden_size: int, vocab_size: int, use_embedding: bool = False,
                  tokenizer: CharacterTokenizer = None, batch_first: bool = True, dropout: float = 0.5,
                  gate: str = 'tanh', **kwargs):
         super().__init__()
@@ -32,7 +32,6 @@ class RNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
-        # self.rank = rank
         self.gate = {"tanh": torch.tanh, "sigmoid": torch.sigmoid, "identity": lambda x: x}[gate]
 
         # Define embedding and decoder layers
@@ -48,8 +47,6 @@ class RNN(nn.Module):
             nn.Dropout(self.dropout),
             nn.Linear(self.hidden_size, self.vocab_size)
         )
-
-
 
         self.w = nn.Parameter(torch.Tensor(self.input_size, self.hidden_size))
         self.u = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))

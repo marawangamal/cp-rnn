@@ -17,9 +17,15 @@ def satisfies_conditions(root_a, root_b, catchall='any'):
         if isinstance(value, dict):
             if not satisfies_conditions(root_a[key], root_b[key]):
                 return False
-        else:
-            if root_a[key] != root_b[key] and root_b[key] != catchall:
+        elif isinstance(root_b[key], list):
+            if root_a[key] not in root_b[key]:
                 return False
+        else:
+            if root_a[key] != root_b[key] and root_b[key] != catchall :
+                return False
+        # else:
+        #     if root_a[key] != root_b[key] and root_b[key] != catchall and (isinstance(root_b[key], list) and root_a[key] not in root_b[key]):
+        #         return False
 
     return True
 
@@ -40,7 +46,8 @@ def main(cfg: DictConfig) -> None:
         print(key + " : " + str(value))
 
     groups = dict()
-    min_epochs = 25  # todo: change this quick fix
+    groups_r = dict()
+    min_epochs = 2  # todo: change this quick fix
     for filename in os.listdir(args['visualization']['root']):
 
         dct = torch.load(
@@ -55,6 +62,13 @@ def main(cfg: DictConfig) -> None:
 
         bpc = dct['test_metrics']['bpc']
         params = dct['num_params']
+        rank = dct['config']['model']['rank']
+        # print('keys', dct['config']['model']['rank'])
+        print('rank', rank)
+        print('bpc', bpc)
+        print('params', params)
+
+
 
         print("Exp: {} | Epochs: {}".format(filename, dct['epoch']))
 
@@ -62,14 +76,25 @@ def main(cfg: DictConfig) -> None:
 
         if group_name not in groups:
             groups[group_name] = ([params], [bpc])
+            groups_r[group_name] = ([rank], [bpc])
+
         else:
             groups[group_name][0].append(params)
             groups[group_name][1].append(bpc)
+            groups_r[group_name][0].append(rank)
+            groups_r[group_name][1].append(bpc)
 
-    for group_name, (params, bpc) in groups.items():
-        plt.scatter(params, bpc, label=group_name)
+    # for group_name, (params, bpc) in groups.items():
+    #     plt.scatter(params, bpc, label=group_name)
+    for group_name, (rank, bpc) in groups_r.items():
+        #save
+        # bpc = np.array(bpc)
+        # np.save(bpc, f'bpc_R{rank}.npy')
+        plt.scatter(rank, bpc, label=group_name)
+
 
     plt.xlabel('Number of parameters')
+    plt.xscale("log")
     plt.ylabel('BPC')
     plt.legend()
     plt.savefig(args['visualization']['output_filename'])

@@ -8,7 +8,7 @@ import torch.nn as nn
 from cprnn.features.tokenizer import CharacterTokenizer
 
 
-class MIRNN(nn.Module):
+class MIRNNNew(nn.Module):
     """Multiplicative Integration RNNN. https://icml.cc/2011/papers/524_icmlpaper.pdf
 
     Args:
@@ -70,6 +70,13 @@ class MIRNN(nn.Module):
         stdv = 0.02  # to match paper
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv)
+        # self.b.data.fill_(0.0)
+        # self.decoder[1].bias.data.fill_(0.0)
+        self.alpha.data.fill_(3)
+        self.beta1.data.fill_(0.4)
+        self.beta2.data.fill_(0.4)
+        self.b.data.fill_(0.0)
+
 
     def init_hidden(self, batch_size, device=torch.device('cpu')):
         h = torch.zeros(batch_size, self.hidden_size).to(device)
@@ -127,7 +134,7 @@ class MIRNN(nn.Module):
 
             # Compute MI-RNN factors
             h_t = self.gate(
-                self.alpha * (x_t @  self.w) + self.beta1 * (h_t @ self.u) + self.beta2 * (x_t @ self.w) + self.b
+                self.alpha * (x_t @  self.w) * (h_t @ self.u) + self.beta1 * (h_t @ self.u) + self.beta2 * (x_t @ self.w) + self.b
             )
             hidden_seq.append(h_t.unsqueeze(0))
 
@@ -136,5 +143,5 @@ class MIRNN(nn.Module):
 
         if self.batch_first:
             output = output.transpose(0, 1)
-
+        # output.shape : [BS, Seq, D_out]
         return output, h_t

@@ -51,9 +51,14 @@ class CPRNN(nn.Module):
         )
 
         # Encoder using CP factors
-        self.a = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.rank))
-        self.b = nn.Parameter(torch.Tensor(self.input_size + 1, self.rank))
-        self.c = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
+        # self.a = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.rank))
+        # self.b = nn.Parameter(torch.Tensor(self.input_size + 1, self.rank))
+        self.A = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
+        self.B = nn.Parameter(torch.Tensor(self.input_size, self.rank))
+        self.C = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
+        self.U = nn.Parameter(torch.Tensor(self.input_size, self.hidden_size))
+        self.V = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))
+        self.d = nn.Parameter(torch.Tensor(self.hidden_size))
         self.init_weights()
 
     def init_weights(self):
@@ -115,14 +120,28 @@ class CPRNN(nn.Module):
         for t in range(sequence_length):
             x_t = x[t, :, :]
 
+            # # [B, D_h][D_h, R] => [B, R]
+            # a_prime = torch.cat((h_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.a
+            #
+            # # [B, D_i'][D_i', R] => [B, R]
+            # b_prime = torch.cat((x_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.b
+            # h_t = self.gate(
+            #     torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c)
+            # )
             # [B, D_h][D_h, R] => [B, R]
-            a_prime = torch.cat((h_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.a
-
+            A_prime = h_t @ self.A
             # [B, D_i'][D_i', R] => [B, R]
-            b_prime = torch.cat((x_t, torch.ones(batch_size, 1).to(device)), dim=1) @ self.b
+            B_prime = x_t @ self.B
+
+            # h_t = self.gate(
+            #     torch.einsum("br,hr -> bh", (A_prime * B_prime), self.C) + h_t @ self.V + x_t @ self.U + self.d
+            # )
+
             h_t = self.gate(
-                torch.einsum("br,br,hr->bh", a_prime, b_prime, self.c)
+                torch.einsum("br,br,hr -> bh", A_prime, B_prime, self.C) + h_t @ self.V + x_t @ self.U + self.d
             )
+
+
             hidden_seq.append(h_t.unsqueeze(0))
 
         hidden_seq = torch.cat(hidden_seq, dim=0)

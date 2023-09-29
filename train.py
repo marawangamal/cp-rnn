@@ -17,9 +17,11 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from cprnn.utils import load_object, AverageMeter
-from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT, MRNN, MIRNN
+from cprnn.models import CPRNN, SecondOrderRNN, LSTMPT, MRNN, MIRNN, MIRNNNew, BiRNN, RNN
 from cprnn.features.ptb_dataloader import PTBDataloader
 from cprnn.features.tokenizer import CharacterTokenizer
+
+from early_stop import EarlyStopping
 
 _output_paths = {
     "models": "models"
@@ -30,7 +32,10 @@ _models = {
     "2rnn": SecondOrderRNN,
     "lstmpt": LSTMPT,
     "mrnn": MRNN,
-    "mirnn": MIRNN
+    "mirnnold": MIRNN,
+    "mirnn": MIRNNNew,
+    "birnn": BiRNN,
+    "rnn": RNN
 }
 
 
@@ -95,6 +100,9 @@ def main(cfg: DictConfig):
         folder_name = "_".join(["{}{}".format(k, v) for k, v in exp_name.items()])
 
         output_path = osp.join(args['data']['output'], osp.split(args["data"]["path"])[-1], folder_name)
+        print("output path : ", output_path)
+
+
         if not osp.exists(output_path):
             os.makedirs(output_path)
             print("Running Experiment: `{}`".format(folder_name))
@@ -127,7 +135,6 @@ def main(cfg: DictConfig):
             datefmt='%H:%M:%S',
         )
         logging.getLogger().addHandler(logging.FileHandler(osp.join(output_path, "logging.txt")))
-
         # Data
         train_dataloader = PTBDataloader(
             osp.join(args["data"]["path"], 'train-{}.pth'.format(args['data']['tokenizer'])), batch_size=args["train"]["batch_size"],
@@ -155,6 +162,9 @@ def main(cfg: DictConfig):
         model.to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=args["train"]["lr"])
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=args["train"]["patience"],
+                                                         threshold=args["train"]["threshold"], verbose=True,
+                                                         factor=args["train"]["factor"])
 
         # Parallelize the model
         if torch.cuda.device_count() > 1:
@@ -162,28 +172,34 @@ def main(cfg: DictConfig):
             model = nn.DataParallel(model)
 
         # Training
-        train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
+        train(model, args, criterion, optimizer, scheduler, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
               output_path, tokenizer, writer)
 
         print("Experiment: `{}` Succeeded".format(folder_name))
 
 
-def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
+def train(model, args, criterion, optimizer, scheduler, train_dataloader, valid_dataloader, test_dataloader, device, num_params,
           output_path, tokenizer, writer):
     best_valid_loss = None
+    early_stopping = EarlyStopping(patience=15, delta=1e-3, verbose=True)
+
     for i_epoch in range(1, args["train"]["epochs"] + 1):
         epoch_start_time = time.time()
         train_metrics = train_epoch(
             model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device
         )
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
+        scheduler.step(valid_metrics['loss'])
+        test_metrics = evaluate(model, test_dataloader, criterion, device=device)
 
         logging.info(
             'Epoch {:4d}/{:4d} | time: {:5.2f}s | train loss {:5.2f} | train ppl {:8.2f} | train bpc {:8.2f} | '
-            'valid loss {:5.2f} | valid ppl {:8.2f} | valid bpc {:8.2f}'.format(
+            'valid loss {:5.2f} | valid ppl {:8.2f} | valid bpc {:8.2f} | '
+            'test loss {:5.2f} | test ppl {:8.2f} | test bpc {:8.2f} |'.format(
                 i_epoch, args["train"]["epochs"], (time.time() - epoch_start_time),
                 train_metrics['loss'], train_metrics['ppl'], train_metrics['bpc'],
-                valid_metrics['loss'], valid_metrics['ppl'], valid_metrics['bpc']
+                valid_metrics['loss'], valid_metrics['ppl'], valid_metrics['bpc'],
+                test_metrics['loss'], test_metrics['ppl'], test_metrics['bpc']
             ))
 
         # Get the gradients and log the histogram
@@ -252,31 +268,47 @@ def train(model, args, criterion, optimizer, train_dataloader, valid_dataloader,
         train_sent_target = train_sent_target.transpose(1, 0)
         train_sent_source = train_sent_source.transpose(1, 0)
 
+        spacing = "" if args['data']['tokenizer'] == "char" else " "
+
         valid_qaul_str = "Source:  \n{}  \nTarget:  \n{}  \nPrediction:  \n{}".format(
-            "".join(valid_sent_source[:, 0]), "".join(valid_sent_target[:, 0]), "".join(valid_sent_output[:, 0])
+            spacing.join(valid_sent_source[:, 0]), spacing.join(valid_sent_target[:, 0]), spacing.join(valid_sent_output[:, 0])
         )
 
         train_qaul_str = "Source:  \n{}  \nTarget:  \n{}  \nPrediction:  \n{}".format(
-            "".join(train_sent_source[:, 0]), "".join(train_sent_target[:, 0]), "".join(train_sent_output[:, 0])
+            spacing.join(train_sent_source[:, 0]), spacing.join(train_sent_target[:, 0]), spacing.join(train_sent_output[:, 0])
         )
 
-        sample_str = sample(model, size=100, prime='The', top_k=5, device=device, tokenizer=tokenizer)
+        # sample_str = sample(model, size=100, prime='The', top_k=5, device=device, tokenizer=tokenizer)
 
         # Sample
-        logging.info("Train:\n{}".format(train_qaul_str))
-        logging.info("Validation:\n{}".format(valid_qaul_str))
-        logging.info("Sample:\n{}".format(sample_str))
+        # logging.info("LR: {}".format(args["train"]["lr"]))
+        logging.info("LR: {}".format(optimizer.param_groups[0]['lr']))
+        # logging.info("Train:\n{}".format(train_qaul_str))
+        # logging.info("Validation:\n{}".format(valid_qaul_str))
+        # logging.info("Sample:\n{}".format(sample_str))
+
 
         # Logging
         for m in train_metrics.keys():
             writer.add_scalar("train/{}".format(m), train_metrics[m], i_epoch)
             writer.add_scalar("valid/{}".format(m), valid_metrics[m], i_epoch)
+            writer.add_scalar("test/{}".format(m), test_metrics[m], i_epoch)
 
-        writer.add_scalar("LR", args["train"]["lr"], i_epoch)
+        writer.add_scalar("LR", optimizer.param_groups[0]['lr'], i_epoch)
         writer.add_text('Valid', valid_qaul_str, i_epoch)
         writer.add_text('Train', train_qaul_str, i_epoch)
-        writer.add_text('Sample', sample_str, i_epoch)
+        # writer.add_text('Sample', sample_str, i_epoch)
 
+        # Early stop
+        if i_epoch > 10:
+            early_stopping(valid_metrics['loss'], model)
+            if early_stopping.early_stop:
+                print("Early stop")
+                writer.flush()
+                writer.close()
+                break
+            else:
+                print("No early stop")
     writer.flush()
     writer.close()
 
@@ -338,7 +370,7 @@ def evaluate(model, eval_dataloader, criterion, device):
             "bpc": loss_average_meter.value / math.log(2)}
 
 
-def train_epoch(model, train_dataloader, optimizer, criterion, clip=5, device=torch.device('cpu')):
+def train_epoch(model, train_dataloader, optimizer, criterion, clip=0.05, device=torch.device('cpu')):
     model.train()
     loss_average_meter = AverageMeter()
     ppl_average_meter = AverageMeter()
@@ -350,12 +382,10 @@ def train_epoch(model, train_dataloader, optimizer, criterion, clip=5, device=to
 
         model.zero_grad()
         output, _ = model.forward(inputs)
-
         n_seqs_curr, n_steps_curr = output.shape[0], output.shape[1]
         loss = criterion(output.reshape(n_seqs_curr * n_steps_curr, -1),
                          targets.reshape(n_seqs_curr * n_steps_curr))
         loss.backward()
-
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
         if clip != 'inf':
             nn.utils.clip_grad_norm_(model.parameters(), clip)

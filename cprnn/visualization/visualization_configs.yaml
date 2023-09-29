@@ -23,11 +23,12 @@
 
 # Generating BPC vs. Number of Parameters plot
 visualization:
-  root: "/home/mila/m/marawan.gamal/projects/cp-rnn/runs/ptb"
+  #  root: "/home/mila/l/lizairem/coding/cprnn/runs/ptb"
+  root: "/network/scratch/l/lizairem/cprnn/runs/ptb"
   output_filename: "bpc_vs_params.png"
   group_by: ["model.name"]
 train:
-  epochs: 25
+  epochs: 300
   lr: 0.0001
   batch_size: any
   seq_len: 50
@@ -35,12 +36,16 @@ train:
   hpopt: any
   verbose: any
 model:
-  name: any # lstmpt, cprnn, 2rnn, 'mirnn'
-  input_size: 200
+  name: [cprnn] # lstmpt, cprnn, 2rnn, 'mirnn'
+  input_size: any #changed from 200 to any
   hidden_size: any
   rank: any
   dropout: 0
+  gate: any #added
 data:
   path: any # Path to the data
+  output: any #added
+  tokenizer: any #added
 eval:
   path: any
+runs : any

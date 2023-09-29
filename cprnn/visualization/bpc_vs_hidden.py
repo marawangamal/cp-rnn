@@ -38,7 +38,7 @@ def get_leaf_value(root, addr_string):
     return value
 
 
-@hydra.main(version_base=None, config_path="./", config_name="visualization_configs")
+@hydra.main(version_base=None, config_path="./", config_name="visualization_configs_hidden")
 def main(cfg: DictConfig) -> None:
 
     args = OmegaConf.to_container(cfg, resolve=True)
@@ -63,33 +63,43 @@ def main(cfg: DictConfig) -> None:
         bpc = dct['test_metrics']['bpc']
         params = dct['num_params']
         rank = dct['config']['model']['rank']
-        # print('keys', dct['config']['model']['rank'])
-        print('rank', rank)
-        print('bpc', bpc)
-        print('params', params)
+        hidden = dct['config']['model']['hidden_size']
+        model_name = dct['config']['model']['name']
+
 
 
 
         print("Exp: {} | Epochs: {}".format(filename, dct['epoch']))
 
-        group_name = ", ".join([str(get_leaf_value(exp_cfg, attr_name)) for attr_name in args['visualization']['group_by']])
+        # group_name = ", ".join([str(get_leaf_value(exp_cfg, attr_name)) for attr_name in args['visualization']['group_by']])
+        group_name = []
+        for attr_name in args['visualization']['group_by']:
+            if model_name == "2rnn" or model_name == "mirnnnew":
+                group_name.append(get_leaf_value(exp_cfg, attr_name))
+                break
+            else:
+                group_name.append(get_leaf_value(exp_cfg, attr_name))
+        group_name = tuple(group_name)
+        print(group_name)
 
         if group_name not in groups:
-            groups[group_name] = ([params], [bpc])
-            groups_r[group_name] = ([rank], [bpc])
+            groups[group_name] = ([rank], [bpc], [hidden], [model_name])
 
         else:
-            groups[group_name][0].append(params)
+            groups[group_name][0].append(rank)
             groups[group_name][1].append(bpc)
-            groups_r[group_name][0].append(rank)
-            groups_r[group_name][1].append(bpc)
+            groups[group_name][2].append(hidden)
+            groups[group_name][3].append(model_name)
 
-    # for group_name, (params, bpc) in groups.items():
-    #     plt.scatter(params, bpc, label=group_name)
-    for group_name, (rank, bpc) in groups_r.items():
-        plt.scatter(rank, bpc, label=group_name)
+    for group_name, (rank, bpc, hidden, model_name) in groups.items():
+        if group_name[0] == '2rnn' or group_name[0] == 'mirnnnew':
+            plt.scatter(hidden, bpc, label=group_name[0])
+        elif group_name[1] in [64,256,1024]:
+            plt.scatter(hidden, bpc, label=group_name)
 
-    plt.xlabel('Number of parameters')
+        # plt.scatter(hidden, bpc, label=group_name[0])
+
+    plt.xlabel('Hidden size')
     plt.xscale("log")
     plt.ylabel('BPC')
     plt.legend()

@@ -35,7 +35,8 @@ class MIRNN(nn.Module):
         self.vocab_size = vocab_size
         self.rank = rank
         self.gate = {"tanh": torch.tanh, "sigmoid": torch.sigmoid, "identity": lambda x: x}[gate]
-
+        print('RUNNING wrong MIRNN ')
+        exit()
         # Define embedding and decoder layers
         if use_embedding:
             self.embedding = nn.Embedding(self.vocab_size, self.input_size)
@@ -51,10 +52,10 @@ class MIRNN(nn.Module):
         )
 
         # Encoder using MI-RNN factors
-        self.a = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
-        self.b = nn.Parameter(torch.Tensor(self.input_size, self.rank))
-        self.c = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
-        self.beta = nn.Parameter(torch.Tensor(self.input_size, self.hidden_size))
+        # self.a = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
+        # self.b = nn.Parameter(torch.Tensor(self.input_size, self.rank))
+        # self.c = nn.Parameter(torch.Tensor(self.hidden_size, self.rank))
+        # self.beta = nn.Parameter(torch.Tensor(self.input_size, self.hidden_size))
 
         self.alpha = nn.Parameter(torch.Tensor(self.hidden_size))
         self.w = nn.Parameter(torch.Tensor(self.input_size, self.hidden_size))
@@ -127,7 +128,7 @@ class MIRNN(nn.Module):
 
             # Compute MI-RNN factors
             h_t = self.gate(
-                self.alpha * (x_t @  self.w) + self.beta1 * (h_t @ self.u) + self.beta2 * (x_t @ self.w) + self.b
+                self.alpha * (x_t @  self.w) * (h_t @ self.u) + self.beta1 * (h_t @ self.u) + self.beta2 * (x_t @ self.w) + self.b
             )
             hidden_seq.append(h_t.unsqueeze(0))
 

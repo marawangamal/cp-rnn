@@ -25,18 +25,20 @@
 visualization:
   #  root: "/home/mila/l/lizairem/coding/cprnn/runs/ptb"
   root: "/network/scratch/l/lizairem/cprnn/runs/ptb"
-  output_filename: "bpc_vs_params.png"
-  group_by: ["model.name"]
+  output_filename: "bpc_vs_hidden.png"
+  group_by: ["model.name", "model.rank"]
 train:
   epochs: 300
   lr: 0.0001
+  threshold: any
+  factor: any
   batch_size: any
   seq_len: 50
   grad_clip: inf
   hpopt: any
   verbose: any
 model:
-  name: [cprnn] # lstmpt, cprnn, 2rnn, 'mirnn'
+  name: [cprnn, 2rnn, mirnnnew] # lstmpt, cprnn, 2rnn, 'mirnn'
   input_size: any #changed from 200 to any
   hidden_size: any
   rank: any

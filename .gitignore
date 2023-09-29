@@ -7,3 +7,4 @@
 *.idea
 *.pth
 quickfix.py
+__pycache__/*

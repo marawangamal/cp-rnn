@@ -53,6 +53,7 @@ class SecondOrderRNN(nn.Module):
         self.w = nn.Parameter(torch.Tensor(self.hidden_size + 1, self.input_size + 1, self.hidden_size))
         self.init_weights()
 
+
     def init_weights(self):
         stdv = 1.0 / math.sqrt(self.hidden_size)
         for weight in self.parameters():

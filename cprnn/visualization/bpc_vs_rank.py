@@ -1,6 +1,7 @@
 import copy
 import os
 import os.path as osp
+import numpy as np
 
 import hydra
 import torch
@@ -23,9 +24,6 @@ def satisfies_conditions(root_a, root_b, catchall='any'):
         else:
             if root_a[key] != root_b[key] and root_b[key] != catchall :
                 return False
-        # else:
-        #     if root_a[key] != root_b[key] and root_b[key] != catchall and (isinstance(root_b[key], list) and root_a[key] not in root_b[key]):
-        #         return False
 
     return True
 
@@ -38,7 +36,7 @@ def get_leaf_value(root, addr_string):
     return value
 
 
-@hydra.main(version_base=None, config_path="./", config_name="visualization_configs")
+@hydra.main(version_base=None, config_path="./", config_name="visualization_configs_rank")
 def main(cfg: DictConfig) -> None:
 
     args = OmegaConf.to_container(cfg, resolve=True)
@@ -46,7 +44,6 @@ def main(cfg: DictConfig) -> None:
         print(key + " : " + str(value))
 
     groups = dict()
-    groups_r = dict()
     min_epochs = 2  # todo: change this quick fix
     for filename in os.listdir(args['visualization']['root']):
 
@@ -63,35 +60,66 @@ def main(cfg: DictConfig) -> None:
         bpc = dct['test_metrics']['bpc']
         params = dct['num_params']
         rank = dct['config']['model']['rank']
-        # print('keys', dct['config']['model']['rank'])
-        print('rank', rank)
-        print('bpc', bpc)
-        print('params', params)
+        hidden = dct['config']['model']['hidden_size']
+        model_name = dct['config']['model']['name']
+        ratio = hidden/rank
+
         
 
 
         print("Exp: {} | Epochs: {}".format(filename, dct['epoch']))
 
-        group_name = ", ".join([str(get_leaf_value(exp_cfg, attr_name)) for attr_name in args['visualization']['group_by']])
+        # group_name = ", ".join([str(get_leaf_value(exp_cfg, attr_name)) for attr_name in args['visualization']['group_by']])
+        group_name = []
+        for attr_name in args['visualization']['group_by']:
+            group_name.append(get_leaf_value(exp_cfg, attr_name))
+        group_name = tuple(group_name)
+
+        # if params > 500000:
+        #     group_name = "~7M params"
+        # elif params < 500000 and params > 30000:
+        #     group_name = "~500K params"
+        # else:
+        #     group_name = "~30K params"
 
         if group_name not in groups:
-            groups[group_name] = ([params], [bpc])
-            groups_r[group_name] = ([rank], [bpc])
+            groups[group_name] = ([rank], [bpc], [hidden], [ratio], [model_name])
 
         else:
-            groups[group_name][0].append(params)
+            groups[group_name][0].append(rank)
             groups[group_name][1].append(bpc)
-            groups_r[group_name][0].append(rank)
-            groups_r[group_name][1].append(bpc)
+            groups[group_name][2].append(hidden)
+            groups[group_name][3].append(ratio)
+            groups[group_name][4].append(model_name)
 
-    # for group_name, (params, bpc) in groups.items():
-    #     plt.scatter(params, bpc, label=group_name)
-    for group_name, (rank, bpc) in groups_r.items():
-        plt.scatter(rank, bpc, label=group_name)
+        # if group_name not in groups:
+        #     groups[group_name] = ([rank], [bpc], [hidden], [ratio])
+        #
+        # else:
+        #     groups[group_name][0].append(rank)
+        #     groups[group_name][1].append(bpc)
+        #     groups[group_name][2].append(hidden)
+        #     groups[group_name][3].append(ratio)
 
-    plt.xlabel('Number of parameters')
-    plt.xscale("log")
+    print("keys", groups.keys())
+    colors = {64: "orange", 256: "blue", 1024: "green"}
+    for group_name, (rank, bpc, hidden, ratio, model_name) in groups.items():
+        # plt.axvline(x=64, color='orange')
+        # plt.axvline(x=256, color='blue')
+        # plt.axvline(x=1024, color='green')
+        if group_name[1] == "2rnn":
+            plt.axhline(y=np.mean(bpc), color = colors[hidden[0]])
+        elif group_name[1] == "mirnnnew":
+            plt.axhline(y=np.mean(bpc), ls=":", color = colors[hidden[0]])
+        else:
+            # plt.scatter(ratio, bpc, label=group_name)
+            plt.scatter(hidden, bpc, label=group_name[0])
+
+    # plt.xlabel('Ratio h/r')
+    plt.xlabel('Rank')
+    # plt.xscale("log")
     plt.ylabel('BPC')
+    # plt.ylim(1.5, 1.8)
     plt.legend()
     plt.savefig(args['visualization']['output_filename'])
 

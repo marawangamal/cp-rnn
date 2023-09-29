@@ -1,23 +1,27 @@
-runs: 3
+runs: 1
 train:
-  epochs: 25
-  lr: 0.0001
+  epochs: 300
+  lr: 0.001 #0.0001 #0.001
+  threshold : 0.02
+  factor : 0.1 #0.02
+  patience : 2
   batch_size: 128
-  seq_len: 50
+  seq_len: 50 #150
   grad_clip: inf
   hpopt: False
   verbose: False
 model:
-  name: mirnn # lstmpt, cprnn, 2rnn
+  name: mirnn #2rnn, cprnn, mirnnnew, lstmpt
   input_size: 0
   hidden_size: 2048
-  rank: 64
+  rank: 1
   dropout: 0
   gate: tanh # tanh, sigmoid, identity
 data:
   path: data/processed/ptb # Path to the data
   tokenizer: char # char, word
-  output: runs
+  output : /network/scratch/l/lizairem/cprnn/runs/exp_c_hp
+#  output: runs
 eval:
   path: 'runs/ptb/e25_l0.0001_b1024_s50_ginf_ncprnn_i200_h2048_r64_d0'
 
