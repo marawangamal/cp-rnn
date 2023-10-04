@@ -189,7 +189,8 @@ def train(model, args, criterion, optimizer, scheduler, train_dataloader, valid_
             model, train_dataloader, optimizer, criterion, clip=args["train"]["grad_clip"], device=device
         )
         valid_metrics = evaluate(model, valid_dataloader, criterion, device=device)
-        scheduler.step(valid_metrics['loss'])
+        if optimizer.param_groups[0]['lr'] > 0.00001:
+            scheduler.step(valid_metrics['loss'])
         test_metrics = evaluate(model, test_dataloader, criterion, device=device)
 
         logging.info(
